@@ -182,6 +182,8 @@ download and play the output file — verify it matches the timeline composition
 - Q: What is the server-side persistence mechanism for project state (timeline, media library references, chat history)? → A: Project state MUST be persisted as **JSON files on local disk** with zero new database dependencies (consistent with Constitution Principle V — simplicity). Each project is stored as a dedicated directory under a configurable root data directory (default: `~/.open_storyline/projects/<project_id>/`). The directory contains: `project.json` (project metadata: id, name, created_at, updated_at), `timeline.json` (full timeline state matching the existing backend Timeline schema), `chat_history.json` (ordered list of chat messages including tool progress events), and a `media/` subdirectory holding uploaded asset files. Media asset metadata (duration, dimensions, type, thumbnail path) is stored in `project.json` alongside project metadata. Reads and writes MUST use atomic file replacement (write to a `.tmp` file then rename) to prevent corruption on crash. No external database engine (SQLite, PostgreSQL, Redis) is required or permitted for v1.
 - Q: What are the lifecycle states of a Media Asset through the upload and processing pipeline? → A: A Media Asset transitions through four states stored in its `status` field in `project.json`: `uploading` (file bytes being received by the server), `processing` (FFmpeg is generating thumbnail, waveform, and extracting duration/dimensions metadata), `ready` (asset is fully processed and available for use), and `error` (processing failed; an additional `error_message` string field MUST be populated with a human-readable description). Assets in `uploading` or `processing` state MUST NOT be draggable to the timeline and MUST render a progress indicator in the media library. Assets in `error` state MUST display an error badge in the media library thumbnail with a \"Retry\" action that re-triggers FFmpeg processing. State transitions are: `uploading` → `processing` (on file receipt complete), `processing` → `ready` (on FFmpeg success), `processing` → `error` (on FFmpeg failure or timeout).
 
+- Q: What is the video preview rendering approach for the in-browser preview panel — Remotion, canvas-based composition, or server-side frame extraction? → A: The preview panel uses server-side FFmpeg frame extraction for v1. The FastAPI backend exposes a `/preview/frame` endpoint accepting `project_id` and `timecode`, extracts the composited frame via FFmpeg, and returns it as a JPEG. The frontend renders frames in an `<img>` element, advancing them on playhead scrub and polling at up to 30 fps during playback simulation. No Remotion or client-side composition runtime is introduced for v1, consistent with Constitution Principle V. Full real-time native-frame-rate composited playback is deferred to post-v1.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
@@ -215,7 +217,13 @@ download and play the output file — verify it matches the timeline composition
 - **FR-006**: Timeline clips MUST be draggable (reorder), trimmable (in/out point
   adjustment), and deletable directly on the timeline without chat interaction.
 - **FR-007**: The playhead MUST be scrubable and the video preview MUST update to
-  the corresponding frame.
+  the corresponding frame. For v1, the preview panel MUST use server-side FFmpeg
+  frame extraction: the backend MUST expose a `GET /preview/frame?project_id=<id>&timecode=<seconds>`
+  endpoint that extracts and returns a JPEG of the composited frame at the specified
+  timecode. The frontend MUST request and display this JPEG on every playhead position
+  change. During playback simulation, the frontend MUST poll this endpoint at up to
+  30 fps. No Remotion or client-side video composition runtime is introduced for v1;
+  full real-time composited playback is deferred to post-v1.
 - **FR-008**: The system MUST support undo/redo for manual timeline edits (minimum
   20 steps).
 - **FR-009**: Users MUST be able to reference specific media assets in chat using
@@ -312,7 +320,14 @@ download and play the output file — verify it matches the timeline composition
   storage integration is required for v1.
 - The frontend tech stack follows Mr.Director's approach: React + TypeScript +
   Tailwind CSS, with a timeline component capable of multi-track editing.
-- Remotion or a similar browser-based renderer is used for in-browser preview;
-  the specific renderer is a planning-phase decision.
+- The video preview panel uses a **server-side FFmpeg frame-extraction approach**: the
+  FastAPI backend exposes a `/preview/frame` endpoint that accepts a `project_id` and
+  `timecode` parameter, extracts the corresponding composited frame via FFmpeg, and
+  returns it as a JPEG. The frontend renders this frame in an `<img>` element and
+  advances it on playhead scrub or during playback (polling at up to 30 fps for
+  playback simulation). No Remotion or browser-side composition runtime is introduced
+  for v1, consistent with Constitution Principle V (simplicity, no new dependency
+  without concrete need). Full real-time composited playback at native frame rate is
+  deferred to post-v1.
 - The chat panel supports the "@" mention pattern (as seen in chatcut.png's
   input placeholder "@ 引用素材") for asset referencing.
