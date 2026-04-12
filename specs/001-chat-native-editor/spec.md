@@ -193,6 +193,7 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
 - Q: What is the scope and persistence strategy for undo/redo (FR-008) — does it cover AI changes, is history persisted to disk, and what happens to the undo stack when an AI timeline_update arrives? → A: Undo/redo history is maintained exclusively in client-side in-memory state (not persisted to disk, consistent with Constitution Principle V). Undo/redo covers only manual user-initiated timeline edits (drag, trim, delete). AI-applied timeline changes via `timeline_update` WebSocket events are NOT undoable through the undo stack. On receipt of any `timeline_update` event the frontend MUST clear the entire undo/redo stack, since the AI has authoritatively replaced timeline state and a stale stack would produce contradictory results.
 - Q: What is the logging and observability strategy for the chat-native editor backend? → A: The backend MUST use Python's standard `logging` module at INFO level for normal operations (WebSocket connections established/closed, project CRUD operations, export job lifecycle transitions) and ERROR level for exceptions and processing failures. Logs MUST be emitted to stderr (standard uvicorn/FastAPI behavior) with no additional log file required for v1. FFmpeg stderr output for failed asset processing MUST be captured and stored in the asset's `error_message` field in `project.json`. No distributed tracing or metrics collection infrastructure is introduced for v1, consistent with Constitution Principle V (simplicity, no new dependency without concrete need).
 - Q: What are the REST API endpoints for project management (list, create, rename, delete) required by FR-014's multi-project support? → A: The backend MUST expose `GET /projects` (list all project summaries with id, name, created_at, updated_at, thumbnail_url), `POST /projects` (create new project with a required name, returns new project object), `GET /projects/{project_id}` (full project metadata), `PATCH /projects/{project_id}` (rename project via name field in JSON body), and `DELETE /projects/{project_id}` (delete project directory and all contents, returns HTTP 204). The frontend MUST provide a project switcher populated from GET /projects; on project switch it MUST load the selected project's timeline.json and chat_history.json replacing current in-memory state; on deletion of the active project it MUST redirect to the project list or auto-create a blank project.
+- Q: What is the latency target and timeout/fallback behavior for the `/preview/frame` endpoint used during playback simulation polling? → A: The `GET /preview/frame` endpoint MUST respond within **200 ms at the 95th percentile** under normal single-user local load. If FFmpeg frame extraction exceeds 500 ms, the endpoint MUST return HTTP 408 (Request Timeout). On any error or timeout response, the frontend MUST retain and continue displaying the last successfully received frame rather than showing a blank or broken preview state.
 
 ## Requirements *(mandatory)*
 
@@ -232,8 +233,14 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
   endpoint that extracts and returns a JPEG of the composited frame at the specified
   timecode. The frontend MUST request and display this JPEG on every playhead position
   change. During playback simulation, the frontend MUST poll this endpoint at up to
-  30 fps. No Remotion or client-side video composition runtime is introduced for v1;
-  full real-time composited playback is deferred to post-v1.
+  30 fps. The backend MUST respond to each `/preview/frame` request within **200 ms
+  at the 95th percentile** under normal single-user local load; if FFmpeg extraction
+  exceeds 500 ms the endpoint MUST return HTTP 408 (Request Timeout) so the frontend
+  can fall back gracefully. On any error or timeout response from `/preview/frame`,
+  the frontend MUST retain and continue displaying the last successfully received
+  frame rather than showing a blank or broken state. No Remotion or client-side
+  video composition runtime is introduced for v1; full real-time composited playback
+  is deferred to post-v1.
 - **FR-008**: The system MUST support undo/redo for manual timeline edits (minimum
   20 steps). The undo/redo history MUST be maintained exclusively in client-side
   in-memory state and MUST NOT be persisted to disk (consistent with Constitution
@@ -318,6 +325,10 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
   requiring CLI or MCP client usage.
 - **SC-006**: The application loads and is ready for first interaction within 3 seconds
   on a standard broadband connection.
+- **SC-007**: The `GET /preview/frame` endpoint MUST respond within 200 ms at the
+  95th percentile under single-user local load. Requests exceeding 500 ms MUST return
+  HTTP 408 so the frontend falls back to the last successfully received frame without
+  displaying a blank or broken preview state.
 
 ## Assumptions
 
