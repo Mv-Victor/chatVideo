@@ -133,22 +133,28 @@ reflects the change.
 ### User Story 5 - Project Export (Priority: P5)
 
 A user completes editing and wants to export the final video. They click an export
-button (or ask the AI "导出视频"), choose output resolution/format, and receive
-a downloadable file. The export process shows progress feedback.
+button (or ask the AI \"导出视频\"), optionally select an output resolution preset
+(source / 1080p / 720p / 480p), and receive a downloadable MP4 file (H.264/AAC).
+The export process shows percentage progress feedback and an estimated time remaining.
 
 **Why this priority**: Export is the ultimate deliverable but can be delivered as
 a later increment once the editing workflow is solid.
 
-**Independent Test**: With a complete timeline, trigger export, wait for completion,
-download and play the output file — verify it matches the timeline composition.
+**Independent Test**: With a complete timeline, trigger export at `720p` resolution,
+wait for completion, download the MP4, and play the output file — verify it is a valid
+MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline composition.
 
 **Acceptance Scenarios**:
 
 1. **Given** a finalized timeline, **When** the user clicks the export button or
-   instructs the AI to export, **Then** an export progress indicator appears and
-   a download link is provided upon completion.
+   instructs the AI to export, **Then** an export job is created, a percentage progress
+   indicator (0–100%) and estimated time remaining appear in the UI, and a download
+   link to the rendered MP4 is provided upon the job reaching `done` status.
 2. **Given** an export in progress, **When** the user views the UI, **Then** they
    see percentage progress and an estimated time remaining.
+3. **Given** the export button UI, **When** the user opens it, **Then** they can
+   select from resolution presets: source (default), 1080p, 720p, 480p; the selected
+   preset is passed to `POST /projects/{project_id}/export` as the `resolution` field.
 
 ---
 
@@ -183,6 +189,7 @@ download and play the output file — verify it matches the timeline composition
 - Q: What are the lifecycle states of a Media Asset through the upload and processing pipeline? → A: A Media Asset transitions through four states stored in its `status` field in `project.json`: `uploading` (file bytes being received by the server), `processing` (FFmpeg is generating thumbnail, waveform, and extracting duration/dimensions metadata), `ready` (asset is fully processed and available for use), and `error` (processing failed; an additional `error_message` string field MUST be populated with a human-readable description). Assets in `uploading` or `processing` state MUST NOT be draggable to the timeline and MUST render a progress indicator in the media library. Assets in `error` state MUST display an error badge in the media library thumbnail with a \"Retry\" action that re-triggers FFmpeg processing. State transitions are: `uploading` → `processing` (on file receipt complete), `processing` → `ready` (on FFmpeg success), `processing` → `error` (on FFmpeg failure or timeout).
 
 - Q: What is the video preview rendering approach for the in-browser preview panel — Remotion, canvas-based composition, or server-side frame extraction? → A: The preview panel uses server-side FFmpeg frame extraction for v1. The FastAPI backend exposes a `/preview/frame` endpoint accepting `project_id` and `timecode`, extracts the composited frame via FFmpeg, and returns it as a JPEG. The frontend renders frames in an `<img>` element, advancing them on playhead scrub and polling at up to 30 fps during playback simulation. No Remotion or client-side composition runtime is introduced for v1, consistent with Constitution Principle V. Full real-time native-frame-rate composited playback is deferred to post-v1.
+- Q: What output formats and resolution presets does the export function support (FR-011)? → A: Export MUST produce an **MP4 file encoded with H.264 video codec and AAC audio codec** — the sole supported output container/codec combination for v1 (consistent with Constitution Principle V — simplicity, and with the FFmpeg dependency already present). The backend MUST expose a `POST /projects/{project_id}/export` endpoint accepting an optional `resolution` parameter. Supported resolution presets are: `source` (default — matches the highest-resolution video asset on the timeline), `1080p` (1920×1080), `720p` (1280×720), and `480p` (854×480). If the `resolution` parameter is omitted, `source` MUST be used. The export endpoint MUST respond immediately with a job ID and the export MUST run asynchronously; a `GET /projects/{project_id}/export/{job_id}` polling endpoint MUST return status (`pending`, `running`, `done`, `error`), percentage progress (0–100), and — when `done` — a download URL for the rendered MP4 file. Export via chat (e.g., \"导出视频\") MUST trigger the same endpoint via the agent's tool interface. The export download URL MUST be a relative path served by the same FastAPI process (no external storage required for v1).
 - Q: What is the scope and persistence strategy for undo/redo (FR-008) — does it cover AI changes, is history persisted to disk, and what happens to the undo stack when an AI timeline_update arrives? → A: Undo/redo history is maintained exclusively in client-side in-memory state (not persisted to disk, consistent with Constitution Principle V). Undo/redo covers only manual user-initiated timeline edits (drag, trim, delete). AI-applied timeline changes via `timeline_update` WebSocket events are NOT undoable through the undo stack. On receipt of any `timeline_update` event the frontend MUST clear the entire undo/redo stack, since the AI has authoritatively replaced timeline state and a stale stack would produce contradictory results.
 
 ## Requirements *(mandatory)*
@@ -246,8 +253,18 @@ download and play the output file — verify it matches the timeline composition
   (full timeline state), `chat_history.json` (ordered message list), and a `media/`
   subdirectory for uploaded asset files. All file writes MUST use atomic replacement
   (write to `.tmp` then rename) to prevent data corruption on crash.
-- **FR-011**: Users MUST be able to export the final video; the system MUST provide
-  download of the rendered MP4 output.
+- **FR-011**: Users MUST be able to export the final video as an MP4 file (H.264 video
+  codec, AAC audio codec — sole supported format for v1). The backend MUST expose a
+  `POST /projects/{project_id}/export` endpoint accepting an optional `resolution`
+  parameter with supported presets: `source` (default, matches highest-resolution
+  timeline asset), `1080p` (1920×1080), `720p` (1280×720), and `480p` (854×480).
+  Export MUST run asynchronously; the endpoint MUST respond immediately with a job ID.
+  A `GET /projects/{project_id}/export/{job_id}` polling endpoint MUST return status
+  (`pending`, `running`, `done`, `error`), percentage progress (0–100), and — when
+  `done` — a relative download URL served by the same FastAPI process. Export initiated
+  via chat instruction (e.g., \"导出视频\") MUST invoke the same endpoint through the
+  agent's tool interface. The UI MUST display percentage progress and estimated time
+  remaining during export, and provide a download link upon completion.
 - **FR-012**: The chat input MUST support multi-line text and submission via Enter
   (with Shift+Enter for newline).
 - **FR-013**: The media library MUST display video thumbnails, audio waveform previews,
