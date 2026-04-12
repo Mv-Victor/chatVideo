@@ -427,53 +427,53 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
   ```json
   {
     "video_volume": "<float — per-track video volume multiplier; range 0.0–2.0, default 1.0; maps to RenderVideoInput.video_volume_scale at export>",
-    \"voiceover_volume\": \"<float — per-track voiceover volume multiplier; range 0.0–2.0, default 2.0; maps to RenderVideoInput.tts_volume_scale at export>\",
+    "voiceover_volume": "<float — per-track voiceover volume multiplier; range 0.0–2.0, default 2.0; maps to RenderVideoInput.tts_volume_scale at export>",
     "bgm_volume": "<float — per-track BGM volume multiplier; range 0.0–2.0, default 0.25; maps to RenderVideoInput.bgm_volume_scale at export>",
     "tracks": {
       "video": [
         {
           "clip_id": "<string>",
           "group_id": "<string>",
-          \"kind\": \"<\\\"video\\\" | \\\"image\\\">\",
-          \"path\": \"<string — absolute path to processed clip file>\",
-          \"fps\": \"<float | null>\",
-          \"source_path\": \"<string | null — absolute path to original source media>\",
-          \"source_window\": { \"start\": \"<int ms>\", \"end\": \"<int ms>\", \"duration\": \"<int ms>\" },
-          \"timeline_window\": { \"start\": \"<int ms>\", \"end\": \"<int ms>\", \"duration\": \"<int ms>\" },
-          \\\"playback_rate\\\": \\\"<float — 1.0 = normal speed>\\\"
+          "kind": "<\"video\" | \"image\">",
+          "path": "<string — absolute path to processed clip file>",
+          "fps": "<float | null>",
+          "source_path": "<string | null — absolute path to original source media>",
+          "source_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" },
+          "timeline_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" },
+          "playback_rate": "<float — 1.0 = normal speed>"
         }
       ],
-      \\\"subtitles\\\": [
+      "subtitles": [
         {
-          \\\"group_id\\\": \\\"<string>\\\",
-          \\\"unit_id\\\": \\\"<string>\\\",
-          \\\"index_in_group\\\": \\\"<int — 0-based index within group>\\\",
-          \\\"text\\\": \\\"<string>\\\",
-          \\\"timeline_window\\\": { \\\"start\\\": \\\"<int ms>\\\", \\\"end\\\": \\\"<int ms>\\\" }
+          "group_id": "<string>",
+          "unit_id": "<string>",
+          "index_in_group": "<int — 0-based index within group>",
+          "text": "<string>",
+          "timeline_window": { "start": "<int ms>", "end": "<int ms>" }
         }
       ],
-      \\\"voiceover\\\": [
+      "voiceover": [
         {
-          \\\"group_id\\\": \\\"<string>\\\",
-          \\\"voiceover_id\\\": \\\"<string>\\\",
-          \\\"path\\\": \\\"<string — absolute path to voiceover audio file>\\\",
-          \\\"source_window\\\": { \\\"start\\\": \\\"<int ms>\\\", \\\"end\\\": \\\"<int ms>\\\", \\\"duration\\\": \\\"<int ms>\\\" },
-          \\\"timeline_window\\\": { \\\"start\\\": \\\"<int ms>\\\", \\\"end\\\": \\\"<int ms>\\\", \\\"duration\\\": \\\"<int ms>\\\" }
+          "group_id": "<string>",
+          "voiceover_id": "<string>",
+          "path": "<string — absolute path to voiceover audio file>",
+          "source_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" },
+          "timeline_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" }
         }
       ],
-      \\\"bgm\\\": [
+      "bgm": [
         {
-          \\\"bgm_id\\\": \\\"<string>\\\",
-          \\\"path\\\": \\\"<string — absolute path to BGM audio file>\\\",
-          \\\"source_window\\\": { \\\"start\\\": \\\"<int ms>\\\", \\\"end\\\": \\\"<int ms>\\\" },
-          \\\"loop_idx\\\": \\\"<int — 0-based loop iteration index>\\\"
+          "bgm_id": "<string>",
+          "path": "<string — absolute path to BGM audio file>",
+          "source_window": { "start": "<int ms>", "end": "<int ms>" },
+          "loop_idx": "<int — 0-based loop iteration index>"
         }
       ]
     }
   }
   ```
 
-  The `timeline.json` file stored on disk MUST conform to this schema. Every `timeline_update` WebSocket event payload MUST contain a complete object matching this schema (no partial/diff updates for v1, as defined in FR-003). The frontend MUST treat this schema as authoritative for rendering the timeline and preview panel. An empty timeline is represented as `{\\\\\\\"video_volume\\\\\\\": 1.0, \\\\\\\"voiceover_volume\\\\\\\": 2.0, \\\\\\\"bgm_volume\\\\\\\": 0.25, \\\\\\\"tracks\\\\\\\": {\\\\\\\"video\\\\\\\": [], \\\\\\\"subtitles\\\\\\\": [], \\\\\\\"voiceover\\\\\\\": [], \\\\\\\"bgm\\\\\\\": []}}`. The `POST /projects/{project_id}/export` and `GET /preview/frame` backend endpoints MUST read `timeline.json` and parse it according to this schema. When constructing `RenderVideoInput` for export, the backend MUST read the top-level `video_volume`, `voiceover_volume`, and `bgm_volume` scalar fields and pass them as `video_volume_scale`, `tts_volume_scale`, and `bgm_volume_scale` respectively; if any field is absent the corresponding `RenderVideoInput` default MUST be used (1.0 / 2.0 / 0.25), preserving backward compatibility with AI-generated timelines that predate this field.
+  The `timeline.json` file stored on disk MUST conform to this schema. Every `timeline_update` WebSocket event payload MUST contain a complete object matching this schema (no partial/diff updates for v1, as defined in FR-003). The frontend MUST treat this schema as authoritative for rendering the timeline and preview panel. An empty timeline is represented as `{"video_volume": 1.0, "voiceover_volume": 2.0, "bgm_volume": 0.25, "tracks": {"video": [], "subtitles": [], "voiceover": [], "bgm": []}}`. The `POST /projects/{project_id}/export` and `GET /preview/frame` backend endpoints MUST read `timeline.json` and parse it according to this schema. When constructing `RenderVideoInput` for export, the backend MUST read the top-level `video_volume`, `voiceover_volume`, and `bgm_volume` scalar fields and pass them as `video_volume_scale`, `tts_volume_scale`, and `bgm_volume_scale` respectively; if any field is absent the corresponding `RenderVideoInput` default MUST be used (1.0 / 2.0 / 0.25), preserving backward compatibility with AI-generated timelines that predate this field.
 
 - **FR-022**: Export job state MUST be persisted to disk so that polling callers always receive a valid response and no job is permanently stuck in a non-terminal state after a server restart. Each export job record MUST be stored as a dedicated JSON file at `~/.open_storyline/projects/<project_id>/exports/<job_id>.json`. The file MUST contain the following fields: `job_id` (UUID string), `status` (one of `pending`, `running`, `done`, `error`), `progress` (integer 0–100), `estimated_time_remaining` (positive integer in seconds, or `null` when not applicable), `download_url` (relative URL string, present only when `status` is `done`), and `error_message` (string, present only when `status` is `error`). All writes to the job record MUST use atomic file replacement (write to a `.tmp` file then rename) consistent with the persistence strategy defined in FR-010. On server startup, the backend MUST scan all project `exports/` subdirectories and transition any jobs found in `pending` or `running` state to `error` state with `error_message` set to `"Export job interrupted by server restart"` — this prevents polling callers from receiving stale non-terminal statuses indefinitely. The `GET /projects/{project_id}/export/{job_id}` endpoint MUST read from the corresponding job file; if the file does not exist the endpoint MUST return HTTP 404. The `GET /projects/{project_id}` endpoint MUST NOT include export job records inline; export state is only accessible through the dedicated polling endpoint.
 
