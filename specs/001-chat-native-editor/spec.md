@@ -210,6 +210,7 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
 - Q: What is the unit of the `timecode` parameter in the `GET /preview/frame` endpoint — seconds or milliseconds? → A: The `timecode` parameter MUST be an **integer value in milliseconds**, consistent with FR-021's canonical rule that all time values in this system are integers in milliseconds. The frontend derives this value directly from the playhead position (already in milliseconds in the timeline model) and passes it as-is to the query parameter with no unit conversion. The backend converts from milliseconds to seconds internally (e.g., `timecode_seconds = timecode_ms / 1000.0`) when invoking FFmpeg. This resolves the contradiction between the original FR-007 specification (`timecode=<seconds>`) and FR-021's mandatory millisecond unit, preventing off-by-1000 frame extraction errors.
 - Q: What is the session_id lifecycle — how is it generated, how does it map to a project, and what happens server-side when the WebSocket closes and when the client reconnects? → A: The `session_id` MUST equal the `project_id` (a UUID string). The WebSocket endpoint `/ws/chat/{session_id}` therefore uniquely identifies the active project context for that connection. The server MUST maintain an in-memory dictionary mapping `session_id` to its active agent instance; the agent instance is created lazily on first WebSocket connection for a given `session_id` by calling `build_agent()` and is released (garbage collected) when the WebSocket closes. No server-side agent state is persisted between connections — on reconnection the server re-instantiates the agent via `build_agent()` and restores conversational context by reloading `chat_history.json` from disk. This design is consistent with Constitution Principle V (simplicity, no new persistence layer) and ensures the reconnect flow in FR-016 (re-subscribe using stored `session_id`) is deterministic and stateless on the server side.
 - Q: Where is export job state persisted, and what happens to in-flight export jobs when the server restarts? → A: Export job state MUST be persisted to disk as individual JSON files at `~/.open_storyline/projects/<project_id>/exports/<job_id>.json`, each containing `job_id`, `status`, `progress`, `estimated_time_remaining`, `download_url` (when done), and `error_message` (when error). All writes use atomic file replacement. On server startup, the backend MUST scan all `exports/` subdirectories and transition any jobs found in `pending` or `running` state to `error` with `error_message: "Export job interrupted by server restart"` — preventing polling callers from receiving stale non-terminal statuses indefinitely. This is specified in FR-022.
+- Q: How does the manual track-volume adjustment feature (referenced in User Story 2 as "adjust track volumes") work in the data model, UI, and export pipeline — and what is the per-track volume field schema? → A: Per-track volume is stored as a `volume` float field (range 0.0–2.0, default 1.0 for video/voiceover and 0.25 for BGM) on each entry in the `video`, `voiceover`, and `bgm` track arrays of `timeline.json` (see FR-021). The timeline panel MUST render a per-track volume slider in each audio-bearing track header (video V1, voiceover A1, BGM A2). Adjusting the slider updates the `volume` field in the in-memory timeline state, persists it to `timeline.json` via atomic write, and counts as a manual edit for undo/redo (FR-008). At export time, the backend reads the `volume` values from `timeline.json` and maps them to `RenderVideoInput`: video `volume` → `video_volume_scale`, voiceover `volume` → `tts_volume_scale`, BGM `volume` → `bgm_volume_scale`. If the `volume` field is absent (AI-generated timelines predating this field), the backend MUST use the `RenderVideoInput` defaults (1.0 / 2.0 / 0.25). This closes the contradiction between User Story 2's acceptance scenario and the absence of any volume data model or FR in the prior spec. See updated FR-006 and FR-021 for normative requirements.
 
 ## Requirements *(mandatory)*
 
@@ -264,6 +265,18 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
   music track (A2), consistent with the existing backend's timeline model.
 - **FR-006**: Timeline clips MUST be draggable (reorder), trimmable (in/out point
   adjustment), and deletable directly on the timeline without chat interaction.
+  In addition, users MUST be able to adjust the playback volume of each audio-bearing
+  track directly on the timeline UI without going through chat. Specifically:
+  the video track (V1), voiceover track (A1), and BGM track (A2) MUST each expose a
+  per-track volume slider (range 0.0–2.0, default 1.0, step 0.05) rendered in the
+  track header area of the timeline panel. The adjusted volume value MUST be persisted
+  in the `volume` field of the corresponding track entries in `timeline.json` (see
+  FR-021 for field definitions). When `POST /projects/{project_id}/export` is called,
+  the backend MUST read the per-track `volume` values from `timeline.json` and map
+  them to `RenderVideoInput` parameters: the video track `volume` maps to
+  `video_volume_scale`, the voiceover track `volume` maps to `tts_volume_scale`, and
+  the BGM track `volume` maps to `bgm_volume_scale`. Volume adjustment on the timeline
+  MUST be treated as a manual edit for undo/redo purposes (FR-008).
 - **FR-007**: The playhead MUST be scrubable and the video preview MUST update to
   the corresponding frame. For v1, the preview panel MUST use server-side FFmpeg
   frame extraction: the backend MUST expose a `GET /preview/frame?project_id=<id>&timecode=<ms>`
@@ -355,46 +368,49 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
         {
           "clip_id": "<string>",
           "group_id": "<string>",
-          "kind": "<\"video\" | \"image\">",
-          "path": "<string — absolute path to processed clip file>",
-          "fps": "<float | null>",
-          "source_path": "<string | null — absolute path to original source media>",
-          "source_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" },
-          "timeline_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" },
-          "playback_rate": "<float — 1.0 = normal speed>"
+          \"kind\": \"<\\\"video\\\" | \\\"image\\\">\",
+          \"path\": \"<string — absolute path to processed clip file>\",
+          \"fps\": \"<float | null>\",
+          \"source_path\": \"<string | null — absolute path to original source media>\",
+          \"source_window\": { \"start\": \"<int ms>\", \"end\": \"<int ms>\", \"duration\": \"<int ms>\" },
+          \"timeline_window\": { \"start\": \"<int ms>\", \"end\": \"<int ms>\", \"duration\": \"<int ms>\" },
+          \"playback_rate\": \"<float — 1.0 = normal speed>\",
+          \"volume\": \"<float — per-track video volume multiplier; range 0.0–2.0, default 1.0; maps to RenderVideoInput.video_volume_scale at export>\"
         }
       ],
-      "subtitles": [
+      \"subtitles\": [
         {
-          "group_id": "<string>",
-          "unit_id": "<string>",
-          "index_in_group": "<int — 0-based index within group>",
-          "text": "<string>",
-          "timeline_window": { "start": "<int ms>", "end": "<int ms>" }
+          \"group_id\": \"<string>\",
+          \"unit_id\": \"<string>\",
+          \"index_in_group\": \"<int — 0-based index within group>\",
+          \"text\": \"<string>\",
+          \"timeline_window\": { \"start\": \"<int ms>\", \"end\": \"<int ms>\" }
         }
       ],
-      "voiceover": [
+      \"voiceover\": [
         {
-          "group_id": "<string>",
-          "voiceover_id": "<string>",
-          "path": "<string — absolute path to voiceover audio file>",
-          "source_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" },
-          "timeline_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" }
+          \"group_id\": \"<string>\",
+          \"voiceover_id\": \"<string>\",
+          \"path\": \"<string — absolute path to voiceover audio file>\",
+          \"source_window\": { \"start\": \"<int ms>\", \"end\": \"<int ms>\", \"duration\": \"<int ms>\" },
+          \"timeline_window\": { \"start\": \"<int ms>\", \"end\": \"<int ms>\", \"duration\": \"<int ms>\" },
+          \"volume\": \"<float — per-track voiceover volume multiplier; range 0.0–2.0, default 1.0; maps to RenderVideoInput.tts_volume_scale at export>\"
         }
       ],
-      "bgm": [
+      \"bgm\": [
         {
-          "bgm_id": "<string>",
-          "path": "<string — absolute path to BGM audio file>",
-          "source_window": { "start": "<int ms>", "end": "<int ms>" },
-          "loop_idx": "<int — 0-based loop iteration index>"
+          \"bgm_id\": \"<string>\",
+          \"path\": \"<string — absolute path to BGM audio file>\",
+          \"source_window\": { \"start\": \"<int ms>\", \"end\": \"<int ms>\" },
+          \"loop_idx\": \"<int — 0-based loop iteration index>\",
+          \"volume\": \"<float — per-track BGM volume multiplier; range 0.0–2.0, default 0.25 (matching RenderVideoInput.bgm_volume_scale default); maps to RenderVideoInput.bgm_volume_scale at export>\"
         }
       ]
     }
   }
   ```
 
-  The `timeline.json` file stored on disk MUST conform to this schema. Every `timeline_update` WebSocket event payload MUST contain a complete object matching this schema (no partial/diff updates for v1, as defined in FR-003). The frontend MUST treat this schema as authoritative for rendering the timeline and preview panel. An empty timeline is represented as `{\"tracks\": {\"video\": [], \"subtitles\": [], \"voiceover\": [], \"bgm\": []}}`. The `POST /projects/{project_id}/export` and `GET /preview/frame` backend endpoints MUST read `timeline.json` and parse it according to this schema.
+  The `timeline.json` file stored on disk MUST conform to this schema. Every `timeline_update` WebSocket event payload MUST contain a complete object matching this schema (no partial/diff updates for v1, as defined in FR-003). The frontend MUST treat this schema as authoritative for rendering the timeline and preview panel. An empty timeline is represented as `{\\\"tracks\\\": {\\\"video\\\": [], \\\"subtitles\\\": [], \\\"voiceover\\\": [], \\\"bgm\\\": []}}`. The `POST /projects/{project_id}/export` and `GET /preview/frame` backend endpoints MUST read `timeline.json` and parse it according to this schema. When constructing `RenderVideoInput` for export, the backend MUST use the `volume` field values from the last entries of each respective track array as the volume scale parameters (or the default values of 1.0 / 1.0 / 0.25 if the field is absent, preserving backward compatibility with AI-generated timelines that predate this field).
 
 - **FR-022**: Export job state MUST be persisted to disk so that polling callers always receive a valid response and no job is permanently stuck in a non-terminal state after a server restart. Each export job record MUST be stored as a dedicated JSON file at `~/.open_storyline/projects/<project_id>/exports/<job_id>.json`. The file MUST contain the following fields: `job_id` (UUID string), `status` (one of `pending`, `running`, `done`, `error`), `progress` (integer 0–100), `estimated_time_remaining` (positive integer in seconds, or `null` when not applicable), `download_url` (relative URL string, present only when `status` is `done`), and `error_message` (string, present only when `status` is `error`). All writes to the job record MUST use atomic file replacement (write to a `.tmp` file then rename) consistent with the persistence strategy defined in FR-010. On server startup, the backend MUST scan all project `exports/` subdirectories and transition any jobs found in `pending` or `running` state to `error` state with `error_message` set to `"Export job interrupted by server restart"` — this prevents polling callers from receiving stale non-terminal statuses indefinitely. The `GET /projects/{project_id}/export/{job_id}` endpoint MUST read from the corresponding job file; if the file does not exist the endpoint MUST return HTTP 404. The `GET /projects/{project_id}` endpoint MUST NOT include export job records inline; export state is only accessible through the dedicated polling endpoint.
 
