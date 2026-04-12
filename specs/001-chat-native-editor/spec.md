@@ -205,6 +205,7 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
 
 - Q: What fields does the `GET /projects/{project_id}/export/{job_id}` polling endpoint return, specifically regarding estimated time remaining shown in the UI? → A: The polling endpoint MUST return: `job_id` (string), `status` (one of `pending`, `running`, `done`, `error`), `progress` (integer 0–100), `estimated_time_remaining` (positive integer seconds remaining when status is `running` and an estimate is available, otherwise `null`), and `download_url` (relative URL string, present only when status is `done`). This resolves the contradiction between FR-011's UI requirement (\"display percentage progress and estimated time remaining\") and the previously underspecified polling response schema that omitted the `estimated_time_remaining` field.
 
+- Q: What is the implementation approach for the multi-track timeline UI component — a custom-built React component or an external timeline/DAW library? → A: The timeline component MUST be implemented as a custom-built React component using the HTML5 Drag-and-Drop API and CSS absolute positioning, with no external timeline or DAW library dependency. This is consistent with Constitution Principle V (simplicity, no new dependency without concrete need). Clip positions are computed from millisecond time values via a `pixelsPerSecond` scale factor in component state; this scale factor is adjustable (zoom) and defaults to display the full timeline duration within the panel width on initial load.
 - Q: What is the canonical structure of the `timeline.json` / Timeline JSON schema that the frontend must render and the backend must read/write? → A: The canonical Timeline JSON schema is derived directly from the backend's `node_schema.py` Pydantic models (`TimelineTracks`, `ClipTrack`, `SubtitleTrack`, `VoiceoverTrack`, `BgmTrack`) as produced by `plan_timeline.py`. The top-level object MUST have a single `tracks` key containing an object with four arrays: `video` (array of ClipTrack objects), `subtitles` (array of SubtitleTrack objects), `voiceover` (array of VoiceoverTrack objects), and `bgm` (array of BgmTrack objects). All time values are integers in **milliseconds**. The full field definitions are specified in FR-021.
 - Q: What is the unit of the `timecode` parameter in the `GET /preview/frame` endpoint — seconds or milliseconds? → A: The `timecode` parameter MUST be an **integer value in milliseconds**, consistent with FR-021's canonical rule that all time values in this system are integers in milliseconds. The frontend derives this value directly from the playhead position (already in milliseconds in the timeline model) and passes it as-is to the query parameter with no unit conversion. The backend converts from milliseconds to seconds internally (e.g., `timecode_seconds = timecode_ms / 1000.0`) when invoking FFmpeg. This resolves the contradiction between the original FR-007 specification (`timecode=<seconds>`) and FR-021's mandatory millisecond unit, preventing off-by-1000 frame extraction errors.
 
@@ -472,7 +473,14 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
 - Media files are stored locally on the server running the application; no cloud
   storage integration is required for v1.
 - The frontend tech stack follows Mr.Director's approach: React + TypeScript +
-  Tailwind CSS, with a timeline component capable of multi-track editing.
+  Tailwind CSS. The multi-track timeline component MUST be implemented as a
+  **custom-built React component** using the HTML5 Drag-and-Drop API and CSS
+  absolute positioning (no external timeline or DAW library dependency), consistent
+  with Constitution Principle V (simplicity, no new dependency without concrete need).
+  Clip positions MUST be computed from millisecond time values via a
+  `pixelsPerSecond` scale factor held in component state; this scale factor MUST be
+  adjustable (zoom in/out) and MUST default to a value that displays the full
+  timeline duration within the available panel width on initial load.
 - The video preview panel uses a **server-side FFmpeg frame-extraction approach**: the
   FastAPI backend exposes a `/preview/frame` endpoint that accepts a `project_id` and
   `timecode` parameter (integer, in milliseconds, consistent with FR-021's canonical
