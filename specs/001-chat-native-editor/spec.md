@@ -195,6 +195,8 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
 - Q: What are the REST API endpoints for project management (list, create, rename, delete) required by FR-014's multi-project support? → A: The backend MUST expose `GET /projects` (list all project summaries with id, name, created_at, updated_at, thumbnail_url), `POST /projects` (create new project with a required name, returns new project object), `GET /projects/{project_id}` (full project metadata), `PATCH /projects/{project_id}` (rename project via name field in JSON body), and `DELETE /projects/{project_id}` (delete project directory and all contents, returns HTTP 204). The frontend MUST provide a project switcher populated from GET /projects; on project switch it MUST load the selected project's timeline.json and chat_history.json replacing current in-memory state; on deletion of the active project it MUST redirect to the project list or auto-create a blank project.
 - Q: What is the latency target and timeout/fallback behavior for the `/preview/frame` endpoint used during playback simulation polling? → A: The `GET /preview/frame` endpoint MUST respond within **200 ms at the 95th percentile** under normal single-user local load. If FFmpeg frame extraction exceeds 500 ms, the endpoint MUST return HTTP 408 (Request Timeout). On any error or timeout response, the frontend MUST retain and continue displaying the last successfully received frame rather than showing a blank or broken preview state.
 
+- Q: What is the REST endpoint contract for media file upload (URL, method, request format, response schema)? → A: The backend MUST expose `POST /projects/{project_id}/media` accepting `multipart/form-data` with a `file` field. The endpoint responds immediately with HTTP 201 and a JSON asset object (`id`, `name`, `type`, `size`, `status: "uploading"`), persists the file to the project's `media/` subdirectory, and asynchronously runs FFmpeg processing transitioning the asset through `uploading` → `processing` → `ready` / `error` as defined in FR-018. Files with MIME types outside video/*, audio/*, image/* MUST be rejected with HTTP 415. No per-file size cap is enforced for v1.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
@@ -203,7 +205,21 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
   left panel (media library), center panel (video preview + timeline), right panel (chat).
   All panels MUST be resizable.
 - **FR-002**: Users MUST be able to upload video, audio, and image files to the media
-  library via drag-and-drop or file picker.
+  library via drag-and-drop or file picker. The backend MUST expose a
+  `POST /projects/{project_id}/media` endpoint that accepts a `multipart/form-data`
+  request with a single `file` field containing the binary asset data. On receipt the
+  endpoint MUST: (1) persist the file to `~/.open_storyline/projects/<project_id>/media/<uuid>.<ext>`,
+  (2) create a media asset record in `project.json` with a generated UUID as `id`, the
+  original filename as `name`, the detected MIME type as `type`, file size in bytes as
+  `size`, and `status` set to `uploading`, (3) respond immediately with HTTP 201 and a
+  JSON body containing the new asset object (fields: `id`, `name`, `type`, `size`,
+  `status`), then (4) asynchronously transition the asset to `processing` and invoke
+  FFmpeg to extract thumbnail, waveform, duration, and dimensions — updating `status`
+  to `ready` on success or `error` (with `error_message`) on failure, as defined in
+  FR-018. The endpoint MUST reject files whose MIME type is not in the allowed set
+  (video/*, audio/*, image/*) with HTTP 415 and a human-readable error message. No
+  maximum individual file size limit is enforced for v1 (single-user local deployment);
+  disk-space exhaustion is handled at the OS level.
 - **FR-003**: The chat panel MUST connect to the existing FireRed-OpenStoryline MCP/Agent
   backend via WebSocket and relay all AI capabilities (script generation, clip assembly,
   BGM selection, voiceover, conversational refinement) through the chat interface.
