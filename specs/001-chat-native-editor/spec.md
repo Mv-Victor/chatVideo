@@ -203,7 +203,9 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
 - Q: What is the REST endpoint contract for media file upload (URL, method, request format, response schema)? → A: The backend MUST expose `POST /projects/{project_id}/media` accepting `multipart/form-data` with a `file` field. The endpoint responds immediately with HTTP 201 and a JSON asset object (`id`, `name`, `type`, `size`, `status: \"uploading\"`), persists the file to the project's `media/` subdirectory, and asynchronously runs FFmpeg processing transitioning the asset through `uploading` → `processing` → `ready` / `error` as defined in FR-018. Files with MIME types outside video/*, audio/*, image/* MUST be rejected with HTTP 415. No per-file size cap is enforced for v1.
 - Q: What is the endpoint contract for deleting a media asset from the library, and what happens when the asset is referenced by timeline clips? → A: The backend MUST expose `DELETE /projects/{project_id}/media/{asset_id}`. If the asset is currently referenced by one or more clips on the timeline, the endpoint MUST return HTTP 409 Conflict with a JSON body containing `{"conflict": true, "referencing_clip_ids": ["<clip_id>", ...]}` — the asset MUST NOT be deleted. If the asset is not referenced by any timeline clip, the endpoint MUST delete the asset file from the `media/` subdirectory and remove the asset record from `project.json`, returning HTTP 204. The frontend MUST check for a 409 response and, if received, display a confirmation dialog listing the number of referencing clips and require explicit user confirmation before the clips are removed from the timeline and the asset deletion is retried. Assets in `uploading` or `processing` state MAY be deleted (the in-flight FFmpeg process MUST be cancelled); this allows users to cancel accidental uploads.
 
-- Q: What fields does the `GET /projects/{project_id}/export/{job_id}` polling endpoint return, specifically regarding estimated time remaining shown in the UI? → A: The polling endpoint MUST return: `job_id` (string), `status` (one of `pending`, `running`, `done`, `error`), `progress` (integer 0–100), `estimated_time_remaining` (positive integer seconds remaining when status is `running` and an estimate is available, otherwise `null`), and `download_url` (relative URL string, present only when status is `done`). This resolves the contradiction between FR-011's UI requirement ("display percentage progress and estimated time remaining") and the previously underspecified polling response schema that omitted the `estimated_time_remaining` field.
+- Q: What fields does the `GET /projects/{project_id}/export/{job_id}` polling endpoint return, specifically regarding estimated time remaining shown in the UI? → A: The polling endpoint MUST return: `job_id` (string), `status` (one of `pending`, `running`, `done`, `error`), `progress` (integer 0–100), `estimated_time_remaining` (positive integer seconds remaining when status is `running` and an estimate is available, otherwise `null`), and `download_url` (relative URL string, present only when status is `done`). This resolves the contradiction between FR-011's UI requirement (\"display percentage progress and estimated time remaining\") and the previously underspecified polling response schema that omitted the `estimated_time_remaining` field.
+
+- Q: What is the canonical structure of the `timeline.json` / Timeline JSON schema that the frontend must render and the backend must read/write? → A: The canonical Timeline JSON schema is derived directly from the backend's `node_schema.py` Pydantic models (`TimelineTracks`, `ClipTrack`, `SubtitleTrack`, `VoiceoverTrack`, `BgmTrack`) as produced by `plan_timeline.py`. The top-level object MUST have a single `tracks` key containing an object with four arrays: `video` (array of ClipTrack objects), `subtitles` (array of SubtitleTrack objects), `voiceover` (array of VoiceoverTrack objects), and `bgm` (array of BgmTrack objects). All time values are integers in **milliseconds**. The full field definitions are specified in FR-021.
 
 ## Requirements *(mandatory)*
 
@@ -335,6 +337,56 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
 - **FR-019**: The backend MUST emit structured log messages using Python's standard `logging` module. INFO-level messages MUST be emitted for: each WebSocket connection established and closed (including `session_id`), each project created or deleted, each media asset state transition (`uploading` → `processing` → `ready` / `error`), and each export job lifecycle event (`pending` → `running` → `done` / `error`). ERROR-level messages MUST be emitted for: unhandled exceptions in WebSocket message handlers, FFmpeg subprocess failures (including the captured FFmpeg stderr output), and export job failures. Logs MUST be written to stderr (standard uvicorn behavior) with no additional log file required for v1. No distributed tracing or external metrics collection is introduced for v1, consistent with Constitution Principle V. FFmpeg stderr output for failed asset processing MUST be included verbatim (truncated to 2 000 characters maximum) in the ERROR log message and stored in the asset's `error_message` field in `project.json`.
 
 - **FR-020**: The backend MUST expose a `DELETE /projects/{project_id}/media/{asset_id}` endpoint for removing a media asset from the library. If the asset is referenced by one or more clips currently present on the timeline, the endpoint MUST return HTTP 409 Conflict with a JSON body `{"conflict": true, "referencing_clip_ids": ["<clip_id>", ...]}` and MUST NOT delete the asset. If the asset is not referenced by any timeline clip, the endpoint MUST delete the asset file from the project's `media/` subdirectory, remove the asset record from `project.json`, and return HTTP 204. Assets in `uploading` or `processing` state MAY be deleted; the backend MUST cancel any in-flight FFmpeg process for that asset before deletion. The frontend MUST handle a 409 response by displaying a confirmation dialog that identifies the number of referencing clips and requires explicit user confirmation; on confirmation, the frontend MUST first remove all referencing clips from the timeline (triggering a timeline save), then retry the `DELETE` request. This endpoint applies only to individual asset deletion; project-level deletion (which removes all assets) is handled by `DELETE /projects/{project_id}` as defined in FR-014.
+
+- **FR-021**: The canonical Timeline JSON schema used by `timeline.json`, `timeline_update` WebSocket events, and the `/preview/frame` and export endpoints is derived from the backend's `src/open_storyline/nodes/node_schema.py` Pydantic models. All time values are integers representing **milliseconds**. The schema is:
+
+  ```json
+  {
+    "tracks": {
+      "video": [
+        {
+          "clip_id": "<string>",
+          "group_id": "<string>",
+          "kind": "<\"video\" | \"image\">",
+          "path": "<string — absolute path to processed clip file>",
+          "fps": "<float | null>",
+          "source_path": "<string | null — absolute path to original source media>",
+          "source_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" },
+          "timeline_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" },
+          "playback_rate": "<float — 1.0 = normal speed>"
+        }
+      ],
+      "subtitles": [
+        {
+          "group_id": "<string>",
+          "unit_id": "<string>",
+          "index_in_group": "<int — 0-based index within group>",
+          "text": "<string>",
+          "timeline_window": { "start": "<int ms>", "end": "<int ms>" }
+        }
+      ],
+      "voiceover": [
+        {
+          "group_id": "<string>",
+          "voiceover_id": "<string>",
+          "path": "<string — absolute path to voiceover audio file>",
+          "source_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" },
+          "timeline_window": { "start": "<int ms>", "end": "<int ms>", "duration": "<int ms>" }
+        }
+      ],
+      "bgm": [
+        {
+          "bgm_id": "<string>",
+          "path": "<string — absolute path to BGM audio file>",
+          "source_window": { "start": "<int ms>", "end": "<int ms>" },
+          "loop_idx": "<int — 0-based loop iteration index>"
+        }
+      ]
+    }
+  }
+  ```
+
+  The `timeline.json` file stored on disk MUST conform to this schema. Every `timeline_update` WebSocket event payload MUST contain a complete object matching this schema (no partial/diff updates for v1, as defined in FR-003). The frontend MUST treat this schema as authoritative for rendering the timeline and preview panel. An empty timeline is represented as `{"tracks": {"video": [], "subtitles": [], "voiceover": [], "bgm": []}}`. The `POST /projects/{project_id}/export` and `GET /preview/frame` backend endpoints MUST read `timeline.json` and parse it according to this schema.
 
 ### Key Entities
 
