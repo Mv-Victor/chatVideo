@@ -235,6 +235,8 @@ Artifacts generated:
 | POST | `/projects/{pid}/media` | Upload media asset | FR-002 |
 | GET | `/projects/{pid}/media/{aid}/thumbnail` | Serve thumbnail/waveform | FR-013 |
 | DELETE | `/projects/{pid}/media/{aid}` | Delete media asset | FR-020 |
+| PATCH | `/projects/{pid}/media/{aid}/retry` | Retry failed asset processing | FR-018 |
+| PATCH | `/projects/{pid}/timeline` | Persist manual timeline edits | FR-006, FR-008 |
 | GET | `/preview/frame` | Extract preview frame | FR-007 |
 | POST | `/projects/{pid}/export` | Start export job | FR-011 |
 | GET | `/projects/{pid}/export/{jid}` | Poll export status | FR-011, FR-022 |
