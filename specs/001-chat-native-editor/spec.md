@@ -177,6 +177,7 @@ download and play the output file — verify it matches the timeline composition
 - Q: What is the merge strategy when the frontend receives a `timeline_update` event — does a partial payload mean replace-only-named-tracks or replace-entire-timeline? → A: For v1, every `timeline_update` event MUST carry the **complete** timeline state (all tracks and all clips). The frontend MUST replace its entire local timeline state atomically on receipt. Partial/diff-style timeline updates are deferred to post-v1. This eliminates any client-side merge ambiguity and prevents stale-clip rendering bugs.
 - Q: What is the WebSocket disconnection and reconnection behavior when the connection drops mid-session? → A: The frontend MUST automatically attempt to reconnect using exponential backoff (initial interval: 1 second, maximum interval: 30 seconds, maximum attempts: 5). During reconnection the UI MUST show a non-blocking "Reconnecting..." status indicator in the chat panel header. After 5 failed attempts a persistent error banner with a manual "Reconnect" button MUST be shown. On successful reconnection the frontend MUST re-subscribe to the active session using the stored `session_id`. Timeline state and chat history MUST be preserved from local in-memory state during disconnection (no data loss from transient drops).
 - Q: How does the new HTTP/WebSocket adapter integrate with the existing backend — is it a new separate service, or does it extend the existing agent_fastapi.py process? → A: The new chat-native editor is implemented as an **in-process extension of the existing `agent_fastapi.py` FastAPI application**. New WebSocket chat endpoints (e.g., `/ws/chat/{session_id}`) and REST endpoints for project/media management are added directly to `agent_fastapi.py`. The React SPA frontend is served as static files from the same FastAPI process. No new server process or separate HTTP service is introduced. The adapter reuses `build_agent()` from `src/open_storyline/agent.py` directly — the same function already used by `agent_fastapi.py` — to obtain a LangChain agent and `NodeManager` per session. This approach satisfies Constitution Principle V (simplicity, no new abstraction layer without concrete need) and Principle I (conversational-first through the existing agent runtime).
+- Q: What is the server-side persistence mechanism for project state (timeline, media library references, chat history)? → A: Project state MUST be persisted as **JSON files on local disk** with zero new database dependencies (consistent with Constitution Principle V — simplicity). Each project is stored as a dedicated directory under a configurable root data directory (default: `~/.open_storyline/projects/<project_id>/`). The directory contains: `project.json` (project metadata: id, name, created_at, updated_at), `timeline.json` (full timeline state matching the existing backend Timeline schema), `chat_history.json` (ordered list of chat messages including tool progress events), and a `media/` subdirectory holding uploaded asset files. Media asset metadata (duration, dimensions, type, thumbnail path) is stored in `project.json` alongside project metadata. Reads and writes MUST use atomic file replacement (write to a `.tmp` file then rename) to prevent corruption on crash. No external database engine (SQLite, PostgreSQL, Redis) is required or permitted for v1.
 
 ## Requirements *(mandatory)*
 
@@ -217,7 +218,13 @@ download and play the output file — verify it matches the timeline composition
 - **FR-009**: Users MUST be able to reference specific media assets in chat using
   "@" mention syntax; the AI agent MUST resolve mentions to the correct uploaded file.
 - **FR-010**: The application MUST persist project state (timeline, media library
-  references, chat history) across browser sessions for the same project.
+  references, chat history) across browser sessions for the same project. Persistence
+  MUST use JSON files on local disk with no external database dependency. Each project
+  occupies a dedicated directory under `~/.open_storyline/projects/<project_id>/`
+  containing `project.json` (metadata and media asset metadata), `timeline.json`
+  (full timeline state), `chat_history.json` (ordered message list), and a `media/`
+  subdirectory for uploaded asset files. All file writes MUST use atomic replacement
+  (write to `.tmp` then rename) to prevent data corruption on crash.
 - **FR-011**: Users MUST be able to export the final video; the system MUST provide
   download of the rendered MP4 output.
 - **FR-012**: The chat input MUST support multi-line text and submission via Enter
@@ -232,7 +239,9 @@ download and play the output file — verify it matches the timeline composition
 ### Key Entities
 
 - **Project**: A named editing session containing a media library, timeline state,
-  and chat history. Persisted server-side and identified by a unique ID.
+  and chat history. Persisted server-side as a directory of JSON files under
+  `~/.open_storyline/projects/<project_id>/` (no external database required).
+  Identified by a unique UUID.
 - **Media Asset**: An uploaded file (video/audio/image) associated with a project,
   with metadata (duration, dimensions, type) and a thumbnail/waveform preview.
 - **Timeline**: The ordered arrangement of clips across multiple tracks with a
@@ -284,6 +293,10 @@ download and play the output file — verify it matches the timeline composition
   consistent with its single-user local-tool nature. API keys remain in `config.toml`
   on the server and are never forwarded to the browser. CORS is restricted to the
   same origin.
+- Project state (timeline, chat history, media asset metadata) is persisted as JSON
+  files on local disk under `~/.open_storyline/projects/`. No external database
+  (SQLite, PostgreSQL, Redis) is introduced for v1, consistent with Constitution
+  Principle V (simplicity, no new dependency without concrete need).
 - The UI visual language is dark-themed, professional, and compact, consistent with
   Mr.Director's zinc-950 palette and chatcut.png's layout density.
 - Media files are stored locally on the server running the application; no cloud
