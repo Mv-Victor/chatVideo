@@ -183,6 +183,7 @@ download and play the output file — verify it matches the timeline composition
 - Q: What are the lifecycle states of a Media Asset through the upload and processing pipeline? → A: A Media Asset transitions through four states stored in its `status` field in `project.json`: `uploading` (file bytes being received by the server), `processing` (FFmpeg is generating thumbnail, waveform, and extracting duration/dimensions metadata), `ready` (asset is fully processed and available for use), and `error` (processing failed; an additional `error_message` string field MUST be populated with a human-readable description). Assets in `uploading` or `processing` state MUST NOT be draggable to the timeline and MUST render a progress indicator in the media library. Assets in `error` state MUST display an error badge in the media library thumbnail with a \"Retry\" action that re-triggers FFmpeg processing. State transitions are: `uploading` → `processing` (on file receipt complete), `processing` → `ready` (on FFmpeg success), `processing` → `error` (on FFmpeg failure or timeout).
 
 - Q: What is the video preview rendering approach for the in-browser preview panel — Remotion, canvas-based composition, or server-side frame extraction? → A: The preview panel uses server-side FFmpeg frame extraction for v1. The FastAPI backend exposes a `/preview/frame` endpoint accepting `project_id` and `timecode`, extracts the composited frame via FFmpeg, and returns it as a JPEG. The frontend renders frames in an `<img>` element, advancing them on playhead scrub and polling at up to 30 fps during playback simulation. No Remotion or client-side composition runtime is introduced for v1, consistent with Constitution Principle V. Full real-time native-frame-rate composited playback is deferred to post-v1.
+- Q: What is the scope and persistence strategy for undo/redo (FR-008) — does it cover AI changes, is history persisted to disk, and what happens to the undo stack when an AI timeline_update arrives? → A: Undo/redo history is maintained exclusively in client-side in-memory state (not persisted to disk, consistent with Constitution Principle V). Undo/redo covers only manual user-initiated timeline edits (drag, trim, delete). AI-applied timeline changes via `timeline_update` WebSocket events are NOT undoable through the undo stack. On receipt of any `timeline_update` event the frontend MUST clear the entire undo/redo stack, since the AI has authoritatively replaced timeline state and a stale stack would produce contradictory results.
 
 ## Requirements *(mandatory)*
 
@@ -225,7 +226,16 @@ download and play the output file — verify it matches the timeline composition
   30 fps. No Remotion or client-side video composition runtime is introduced for v1;
   full real-time composited playback is deferred to post-v1.
 - **FR-008**: The system MUST support undo/redo for manual timeline edits (minimum
-  20 steps).
+  20 steps). The undo/redo history MUST be maintained exclusively in client-side
+  in-memory state and MUST NOT be persisted to disk (consistent with Constitution
+  Principle V — simplicity). Undo/redo MUST cover only manual timeline edits
+  performed directly by the user (drag, trim, delete); AI-applied timeline changes
+  delivered via `timeline_update` WebSocket events are NOT reversible through the
+  undo stack. On receipt of any `timeline_update` event from the AI agent, the
+  frontend MUST clear the entire undo/redo stack, because the AI has replaced
+  timeline state authoritatively and a stale undo stack would produce contradictory
+  results. Keyboard shortcut: Ctrl/Cmd+Z for undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y)
+  for redo.
 - **FR-009**: Users MUST be able to reference specific media assets in chat using
   "@" mention syntax; the AI agent MUST resolve mentions to the correct uploaded file.
 - **FR-010**: The application MUST persist project state (timeline, media library
