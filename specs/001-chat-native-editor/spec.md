@@ -216,6 +216,7 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
 - Q: What is the exact set of timeline tracks that the frontend must render — does the backend support a separate clip-based overlay (V2) track in addition to the video (V1), voiceover (A1), and BGM (A2) tracks? → A: The backend `TimelineTracks` schema in `node_schema.py` defines exactly four track arrays: `video`, `subtitles`, `voiceover`, and `bgm`. There is no separate clip-based overlay track (V2) in the backend model for v1. FR-005 previously referenced "one overlay track (V2)" which was inconsistent with the actual backend schema and FR-021's canonical JSON schema. FR-005 has been corrected to specify exactly four tracks: V1 (`video`), SUB (`subtitles`), A1 (`voiceover`), and A2 (`bgm`). A separate clip-based overlay track is deferred to post-v1 pending backend schema support. The subtitle track (SUB) provides text-overlay capability on the video track for v1.
 - Q: Where should per-track volume be stored in `timeline.json` — as a `volume` field on each individual clip entry within track arrays, or as top-level scalar fields alongside `tracks`? → A: Per-track volume MUST be stored as **top-level scalar fields** (`video_volume`, `voiceover_volume`, `bgm_volume`) at the root of the `timeline.json` object alongside `tracks`. Individual clip entries (`ClipTrack`, `VoiceoverTrack`, `BgmTrack`) in `node_schema.py` carry no `volume` attribute, so placing `volume` on per-clip entries diverges from the actual backend schema and creates an unimplementable \"use last entry\" export heuristic. `RenderVideoInput` takes single scalar multipliers, confirming volume is a per-render (per-track) setting. FR-006 and FR-021 have been updated accordingly to eliminate all per-clip `volume` field references and replace them with the top-level scalar field model.
 - Q: What is the correct default value for `voiceover_volume` in `timeline.json` — 1.0 or 2.0? → A: The `voiceover_volume` field MUST default to **2.0**, matching the actual `RenderVideoInput.tts_volume_scale` default defined in `node_schema.py` (`tts_volume_scale: float = 2.0`). The previously documented default of 1.0 was incorrect and would cause newly initialized projects to render voiceover audio at half the volume of AI-assembled timelines (which rely on the 2.0 `RenderVideoInput` fallback). FR-006 (slider default), FR-021 (JSON schema comment and empty timeline example), and the Clarifications session entry for track-volume have all been corrected to 2.0. The `video_volume` and `bgm_volume` defaults remain 1.0 and 0.25 respectively, consistent with `video_volume_scale: float = 1.0` and `bgm_volume_scale: float = 0.25` in `node_schema.py`.
+- Q: What is the implementation contract for the "@" mention feature in FR-009 — how does the frontend autocomplete work, what is the message payload format, how does the backend resolve mentions, and how are duplicate filenames disambiguated? → A: (1) Frontend autocomplete: when the user types "@" in the chat input the frontend MUST display a dropdown of all `ready`-status assets from the in-memory media library (no additional API call needed), filtered in real time as the user continues typing. Duplicate filenames are disambiguated by appending the asset's `created_at` time (HH:MM:SS) to each duplicate entry in the dropdown. (2) Message payload: the `chat_message` WebSocket event MUST include a top-level `mentions` array alongside `content`; each entry has `asset_id` (UUID, authoritative) and `asset_name` (display-only string). The `content` field uses the human-readable "@asset_name" form. (3) Backend resolution: the backend MUST look up each `asset_id` in `project.json` and inject resolved asset metadata (absolute `path`, `type`, `duration` in ms, `dimensions` if applicable) into the agent's system prompt context before invoking `build_agent()`. If a referenced `asset_id` is not found, the backend MUST emit an `error` WebSocket event with `code: "ASSET_NOT_FOUND"` and MUST NOT invoke the agent for that turn. Assets in `uploading` or `processing` state MUST NOT appear in the "@" autocomplete dropdown. See updated FR-009 for normative requirements.
 
 ## Requirements *(mandatory)*
 
@@ -327,6 +328,35 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
   for redo.
 - **FR-009**: Users MUST be able to reference specific media assets in chat using
   "@" mention syntax; the AI agent MUST resolve mentions to the correct uploaded file.
+  The full @-mention contract is:
+  (1) **Frontend autocomplete**: when the user types "@" in the chat input, the frontend
+  MUST display a dropdown listing all `ready`-status assets in the current project's media
+  library (fetched from the in-memory asset list, no additional API call required). The
+  dropdown MUST be filtered in real time as the user continues typing after "@". If two
+  or more assets share the same filename, the dropdown MUST disambiguate them by appending
+  the asset's `created_at` timestamp (formatted as `HH:MM:SS`) to each duplicate entry
+  (e.g., "clip.mp4 (14:02:31)" vs "clip.mp4 (14:05:17)").
+  (2) **Message payload**: the chat `chat_message` WebSocket event MUST include a
+  top-level `mentions` array alongside the `content` string. Each entry in `mentions`
+  is an object with two fields: `asset_id` (UUID string — the unambiguous identifier of
+  the referenced asset) and `asset_name` (string — the display name shown in the chat
+  text). The `content` string MUST use the human-readable "@asset_name" form. The
+  `mentions` array is the authoritative source for backend resolution; the display-form
+  asset name in `content` is for rendering only.
+  (3) **Backend resolution**: on receipt of a `chat_message` WebSocket event containing
+  a non-empty `mentions` array, the backend MUST look up each referenced `asset_id` in
+  `project.json` and inject the resolved asset metadata (absolute `path`, `type`,
+  `duration` in milliseconds, `dimensions` if applicable) into the agent's system prompt
+  context before invoking `build_agent()`. If a referenced `asset_id` does not exist in
+  `project.json` (e.g., asset was deleted after the mention was composed), the backend
+  MUST emit an `error` WebSocket event with `code: "ASSET_NOT_FOUND"` and a human-readable
+  message identifying the missing asset name, and MUST NOT invoke the agent for that turn.
+  (4) **Acceptance criteria**: given a project with at least two `ready` assets (including
+  one with a name collision duplicate), when the user types "@" in the chat input and
+  selects an asset from the dropdown, the submitted message payload MUST contain the
+  correct `asset_id` in the `mentions` array and the agent MUST operate on that specific
+  asset. Assets in `uploading` or `processing` state MUST NOT appear in the "@" autocomplete
+  dropdown.
 - **FR-010**: The application MUST persist project state (timeline, media library
   references, chat history) across browser sessions for the same project. Persistence
   MUST use JSON files on local disk with no external database dependency. Each project
