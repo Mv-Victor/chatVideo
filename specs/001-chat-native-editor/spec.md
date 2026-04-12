@@ -196,7 +196,9 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
 - Q: What is the latency target and timeout/fallback behavior for the `/preview/frame` endpoint used during playback simulation polling? → A: The `GET /preview/frame` endpoint MUST respond within **200 ms at the 95th percentile** under normal single-user local load. If FFmpeg frame extraction exceeds 500 ms, the endpoint MUST return HTTP 408 (Request Timeout). On any error or timeout response, the frontend MUST retain and continue displaying the last successfully received frame rather than showing a blank or broken preview state.
 - Q: What is the behavior of `POST /projects/{project_id}/export` when an export job is already `pending` or `running` for the same project? → A: The endpoint MUST reject the duplicate request with **HTTP 409 Conflict** and return a JSON body containing the `job_id` of the already-active job (the one in `pending` or `running` state) along with its current `status`. The frontend MUST surface this as a non-blocking notification (e.g., "An export is already in progress") and display the progress of the existing job rather than starting a new one. At most one export job per project may be in `pending` or `running` state simultaneously; this constraint eliminates undefined queue-ordering behavior and is consistent with Constitution Principle V (simplicity).
 
-- Q: What is the REST endpoint contract for media file upload (URL, method, request format, response schema)? → A: The backend MUST expose `POST /projects/{project_id}/media` accepting `multipart/form-data` with a `file` field. The endpoint responds immediately with HTTP 201 and a JSON asset object (`id`, `name`, `type`, `size`, `status: "uploading"`), persists the file to the project's `media/` subdirectory, and asynchronously runs FFmpeg processing transitioning the asset through `uploading` → `processing` → `ready` / `error` as defined in FR-018. Files with MIME types outside video/*, audio/*, image/* MUST be rejected with HTTP 415. No per-file size cap is enforced for v1.
+- Q: What is the REST endpoint contract for media file upload (URL, method, request format, response schema)? → A: The backend MUST expose `POST /projects/{project_id}/media` accepting `multipart/form-data` with a `file` field. The endpoint responds immediately with HTTP 201 and a JSON asset object (`id`, `name`, `type`, `size`, `status: \"uploading\"`), persists the file to the project's `media/` subdirectory, and asynchronously runs FFmpeg processing transitioning the asset through `uploading` → `processing` → `ready` / `error` as defined in FR-018. Files with MIME types outside video/*, audio/*, image/* MUST be rejected with HTTP 415. No per-file size cap is enforced for v1.
+
+- Q: What fields does the `GET /projects/{project_id}/export/{job_id}` polling endpoint return, specifically regarding estimated time remaining shown in the UI? → A: The polling endpoint MUST return: `job_id` (string), `status` (one of `pending`, `running`, `done`, `error`), `progress` (integer 0–100), `estimated_time_remaining` (positive integer seconds remaining when status is `running` and an estimate is available, otherwise `null`), and `download_url` (relative URL string, present only when status is `done`). This resolves the contradiction between FR-011's UI requirement ("display percentage progress and estimated time remaining") and the previously underspecified polling response schema that omitted the `estimated_time_remaining` field.
 
 ## Requirements *(mandatory)*
 
@@ -286,8 +288,10 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
   timeline asset), `1080p` (1920×1080), `720p` (1280×720), and `480p` (854×480).
   Export MUST run asynchronously; the endpoint MUST respond immediately with a job ID.
   A `GET /projects/{project_id}/export/{job_id}` polling endpoint MUST return status
-  (`pending`, `running`, `done`, `error`), percentage progress (0–100), and — when
-  `done` — a relative download URL served by the same FastAPI process. Export initiated
+  (`pending`, `running`, `done`, `error`), percentage progress (0–100), an
+  `estimated_time_remaining` integer field (seconds remaining as a positive integer,
+  or `null` when status is `pending` or `error` and an estimate is unavailable), and
+  — when `done` — a relative download URL served by the same FastAPI process. Export initiated
   via chat instruction (e.g., \\\"导出视频\\\") MUST invoke the same endpoint through the
   agent's tool interface. The UI MUST display percentage progress and estimated time
   remaining during export, and provide a download link upon completion. At most one
