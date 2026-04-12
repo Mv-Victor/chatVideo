@@ -172,6 +172,7 @@ download and play the output file — verify it matches the timeline composition
 
 - Q: What is the security and API key protection model for the new web layer that proxies to the MCP/Agent backend? → A: The web server MUST read all API keys exclusively from `config.toml` (never from environment variables passed through the browser or embedded in frontend code). The HTTP/WebSocket adapter MUST bind only to `localhost` (127.0.0.1) by default for v1. CORS MUST be restricted to the same origin. No authentication mechanism is required for v1 given single-user local operation, but the server MUST NOT bind to `0.0.0.0` without an explicit user configuration override.
 - Q: What is the WebSocket message schema / communication protocol between the frontend and the HTTP/WebSocket adapter for AI progress events, timeline updates, and tool call results? → A: All WebSocket messages MUST be JSON-framed with a typed `event` discriminator field. The protocol defines the following canonical event types: `chat_message` (user or AI text turn), `tool_progress` (tool call name, status, and optional detail payload), `timeline_update` (full or partial timeline JSON matching the existing backend Timeline schema), and `error` (code and human-readable message). Every message MUST carry a top-level `type` string field (the event discriminator), a `session_id` string field, and an ISO-8601 `timestamp` string field. The frontend MUST ignore unknown `type` values to allow forward compatibility.
+- Q: What is the merge strategy when the frontend receives a `timeline_update` event — does a partial payload mean replace-only-named-tracks or replace-entire-timeline? → A: For v1, every `timeline_update` event MUST carry the **complete** timeline state (all tracks and all clips). The frontend MUST replace its entire local timeline state atomically on receipt. Partial/diff-style timeline updates are deferred to post-v1. This eliminates any client-side merge ambiguity and prevents stale-clip rendering bugs.
 
 ## Requirements *(mandatory)*
 
@@ -188,11 +189,14 @@ download and play the output file — verify it matches the timeline composition
   All WebSocket messages MUST be JSON-framed with a typed `event` discriminator. The
   protocol defines four canonical event types: `chat_message` (user or AI text turn),
   `tool_progress` (tool call name, status, and optional detail payload), `timeline_update`
-  (full or partial timeline JSON matching the existing backend Timeline schema), and
-  `error` (code and human-readable message). Every message MUST carry a top-level
-  `type` string field (the event discriminator), a `session_id` string field, and an
-  ISO-8601 `timestamp` string field. The frontend MUST silently ignore unknown `type`
-  values to allow forward compatibility.
+  (complete timeline JSON matching the existing backend Timeline schema — every
+  `timeline_update` MUST carry the full timeline state; partial/diff updates are
+  deferred to post-v1), and `error` (code and human-readable message). Every message
+  MUST carry a top-level `type` string field (the event discriminator), a `session_id`
+  string field, and an ISO-8601 `timestamp` string field. The frontend MUST silently
+  ignore unknown `type` values to allow forward compatibility. On receipt of a
+  `timeline_update` event, the frontend MUST atomically replace its entire local
+  timeline state with the payload.
 - **FR-004**: The AI agent MUST display real-time progress messages in the chat (e.g.,
   tool call status, step completion) as it executes, mirroring the existing backend's
   node progress events. Progress messages arrive via `tool_progress` events (as defined
