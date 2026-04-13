@@ -461,13 +461,13 @@ export function useExportJob(
 
 /**
  * Create a new project with a given name
- * Convenience wrapper around useCreateProject
+ * Convenience function for imperative project creation (calls API directly)
  */
-export function createProject(): (name: string) => Promise<Project> {
-  const mutation = useCreateProject();
-  return async (name: string) => {
-    return mutation.mutateAsync({ name });
-  };
+export async function createProject(name: string): Promise<Project> {
+  return apiFetch<Project>('/projects', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
 }
 
 /**
