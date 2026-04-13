@@ -23,6 +23,7 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib # Python <= 3.10
 import traceback
+from datetime import datetime, timezone
 
 try:
     from uvicorn.protocols.utils import ClientDisconnected
@@ -2244,13 +2245,128 @@ async def preview_frame(project_id: str, timecode: int):
     raise HTTPException(status_code=501, detail="Not implemented - T039")
 
 
-# WebSocket for editor chat (stub for T013)
+# WebSocket for editor chat (T013)
 @app.websocket("/ws/chat/{session_id}")
 async def ws_editor_chat(ws: WebSocket, session_id: str):
-    """WebSocket for AI chat. Stub - implemented in T013."""
+    """
+    WebSocket for AI chat in the chat-native editor.
+    
+    Per FR-017: session_id == project_id (1:1 mapping).
+    Handles connection open/close lifecycle with agent lazy create and release.
+    """
+    from open_storyline.editor.ws_session import (
+        get_or_create_session,
+        release_session,
+    )
+    from open_storyline.editor.project_store import get_chat_history
+    
+    cfg: Settings = app.state.cfg
+    
+    # Accept the connection
     await ws.accept()
-    await ws.send_json({"type": "error", "data": {"message": "Not implemented - T013"}})
-    await ws.close()
+    logger.info(f"WS editor chat: Connection established for session {session_id}")
+    
+    session = None
+    
+    try:
+        # Get or create the WebSocket session
+        session = await get_or_create_session(
+            project_id=session_id,
+            websocket=ws,
+            cfg=cfg,
+        )
+        
+        # Send existing chat history on connect (FR-010)
+        try:
+            history = get_chat_history(session_id)
+            await ws.send_json({
+                "type": "chat_history",
+                "session_id": session_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "messages": history,
+            })
+        except Exception as e:
+            logger.warning(f"WS editor chat: Failed to load chat history for {session_id}: {e}")
+            # Send empty history if load fails
+            await ws.send_json({
+                "type": "chat_history",
+                "session_id": session_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "messages": [],
+            })
+        
+        # Message receive loop
+        while True:
+            try:
+                # Receive raw text/bytes
+                raw = await ws.receive_text()
+                
+                # Parse JSON message
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    logger.error(f"WS editor chat: Invalid JSON from client: {e}")
+                    await ws.send_json({
+                        "type": "error",
+                        "session_id": session_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "code": "INVALID_JSON",
+                        "message": f"Invalid JSON: {e}",
+                    })
+                    continue
+                
+                # Validate message structure
+                msg_type = msg.get("type")
+                if msg_type != "chat_message":
+                    logger.warning(f"WS editor chat: Unknown message type: {msg_type}")
+                    await ws.send_json({
+                        "type": "error",
+                        "session_id": session_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "code": "UNKNOWN_MESSAGE_TYPE",
+                        "message": f"Unknown message type: {msg_type}",
+                    })
+                    continue
+                
+                # Ensure required fields
+                msg["session_id"] = session_id
+                if "timestamp" not in msg:
+                    msg["timestamp"] = datetime.now(timezone.utc).isoformat()
+                
+                # Dispatch to WSSession for serial processing
+                logger.info(f"WS editor chat: Dispatching message for session {session_id}")
+                await session.dispatch_message(msg)
+                
+            except WebSocketDisconnect:
+                logger.info(f"WS editor chat: Client disconnected for session {session_id}")
+                break
+            
+    except WebSocketDisconnect:
+        logger.info(f"WS editor chat: Connection closed during setup for session {session_id}")
+        
+    except Exception as e:
+        logger.error(f"WS editor chat: Error for session {session_id}: {e}")
+        logger.error(traceback.format_exc())
+        try:
+            await ws.send_json({
+                "type": "error",
+                "session_id": session_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "code": "CONNECTION_ERROR",
+                "message": str(e),
+            })
+        except Exception:
+            pass
+    
+    finally:
+        # Release the session on close (FR-017: no state retained on server)
+        if session:
+            try:
+                await release_session(session_id)
+            except Exception as e:
+                logger.warning(f"WS editor chat: Failed to release session {session_id}: {e}")
+        
+        logger.info(f"WS editor chat: Connection closed for session {session_id}")
 
 
 app.include_router(api)
