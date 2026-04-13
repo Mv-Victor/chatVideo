@@ -254,13 +254,22 @@ class WSSession:
                         # Emit tool_progress with status "completed" or "failed"
                         is_error = event.get("is_error", False)
                         summary = event.get("summary", "") or ""
+                        status = "failed" if is_error else "completed"
                         self._emit_event_sync({
                             "type": "tool_progress",
                             "session_id": self.project_id,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                             "tool_name": event.get("name", ""),
-                            "status": "failed" if is_error else "completed",
+                            "status": status,
                             "detail": summary,
+                        })
+                        # Persist tool_progress message (completion/failure)
+                        append_chat_message(self.project_id, {
+                            "id": str(uuid.uuid4()),
+                            "role": "tool_progress",
+                            "content": "",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "tool_name": event.get("name", ""),
                         })
                 
                 except Exception as e:
