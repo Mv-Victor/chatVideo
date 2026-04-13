@@ -1503,6 +1503,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="OpenStoryline Web", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
@@ -1511,11 +1513,26 @@ app.add_middleware(
     trust_proxy_headers=RATE_LIMIT_TRUST_PROXY_HEADERS,
 )
 
+# CORS middleware for chat-native editor (FR-015: localhost-only)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost", "http://127.0.0.1"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+WEB_EDITOR_DIR = os.path.join(ROOT_DIR, "web", "editor", "dist")
+
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 if os.path.isdir(NODE_MAP_DIR):
     app.mount("/node_map", StaticFiles(directory=NODE_MAP_DIR), name="node_map")
+
+# Static files for chat-native editor (FR-017)
+if os.path.isdir(WEB_EDITOR_DIR):
+    app.mount("/editor", StaticFiles(directory=WEB_EDITOR_DIR, html=True), name="editor")
 
 api = APIRouter(prefix="/api")
 
@@ -2084,6 +2101,157 @@ async def preview_local_file(session_id: str, path: str):
         filename=os.path.basename(ap),
         headers=headers,
     )
+
+# -------------------------
+# Chat-Native Editor API routes (001-chat-native-editor)
+# -------------------------
+editor_api = APIRouter(prefix="/projects", tags=["editor"])
+
+# Pydantic models for editor API
+from pydantic import BaseModel, Field
+from typing import Union
+
+
+class CreateProjectRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+class RenameProjectRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+class TimelineUpdateRequest(BaseModel):
+    video_volume: float = Field(1.0, ge=0.0, le=2.0)
+    voiceover_volume: float = Field(2.0, ge=0.0, le=2.0)
+    bgm_volume: float = Field(0.25, ge=0.0, le=2.0)
+    tracks: dict = Field(default_factory=dict)
+
+
+class ExportRequest(BaseModel):
+    resolution: str = Field("source", pattern="^(source|1080p|720p|480p)$")
+
+
+class RetryMediaRequest(BaseModel):
+    pass
+
+
+# Project Management
+@editor_api.get("")
+async def list_projects_editor():
+    """List all projects."""
+    from open_storyline.editor.project_store import list_projects
+    return list_projects()
+
+
+@editor_api.post("", status_code=201)
+async def create_project_editor(request: CreateProjectRequest):
+    """Create a new project."""
+    from open_storyline.editor.project_store import create_project
+    return create_project(request.name)
+
+
+@editor_api.get("/{project_id}")
+async def get_project_editor(project_id: str):
+    """Get project metadata."""
+    from open_storyline.editor.project_store import get_project, FileNotFoundError as ProjectNotFoundError
+    try:
+        return get_project(project_id)
+    except (FileNotFoundError, ProjectNotFoundError):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
+@editor_api.patch("/{project_id}")
+async def rename_project_editor(project_id: str, request: RenameProjectRequest):
+    """Rename a project."""
+    from open_storyline.editor.project_store import rename_project, FileNotFoundError as ProjectNotFoundError
+    try:
+        return rename_project(project_id, request.name)
+    except (FileNotFoundError, ProjectNotFoundError):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
+@editor_api.delete("/{project_id}", status_code=204)
+async def delete_project_editor(project_id: str):
+    """Delete a project."""
+    from open_storyline.editor.project_store import delete_project, FileNotFoundError as ProjectNotFoundError
+    try:
+        delete_project(project_id)
+    except (FileNotFoundError, ProjectNotFoundError):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
+@editor_api.get("/{project_id}/chat_history")
+async def get_chat_history_editor(project_id: str):
+    """Get chat history for a project."""
+    from open_storyline.editor.project_store import get_chat_history, FileNotFoundError as ProjectNotFoundError
+    try:
+        return get_chat_history(project_id)
+    except (FileNotFoundError, ProjectNotFoundError):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
+# Media Management (stubs for T029-T037)
+@editor_api.post("/{project_id}/media", status_code=201)
+async def upload_media_editor(project_id: str, file: UploadFile = File(...)):
+    """Upload media asset. Stub - implemented in T029."""
+    raise HTTPException(status_code=501, detail="Not implemented - T029")
+
+
+@editor_api.get("/{project_id}/media/{asset_id}/thumbnail")
+async def get_media_thumbnail_editor(project_id: str, asset_id: str):
+    """Get media thumbnail. Stub - implemented in T031."""
+    raise HTTPException(status_code=501, detail="Not implemented - T031")
+
+
+@editor_api.delete("/{project_id}/media/{asset_id}", status_code=204)
+async def delete_media_editor(project_id: str, asset_id: str):
+    """Delete media asset. Stub - implemented in T032."""
+    raise HTTPException(status_code=501, detail="Not implemented - T032")
+
+
+@editor_api.patch("/{project_id}/media/{asset_id}/retry")
+async def retry_media_editor(project_id: str, asset_id: str):
+    """Retry failed media processing. Stub - implemented in T037."""
+    raise HTTPException(status_code=501, detail="Not implemented - T037")
+
+
+# Timeline
+@editor_api.patch("/{project_id}/timeline")
+async def update_timeline_editor(project_id: str, request: TimelineUpdateRequest):
+    """Persist manual timeline edits. Stub - implemented in T027."""
+    raise HTTPException(status_code=501, detail="Not implemented - T027")
+
+
+# Export (stubs for T043-T046)
+@editor_api.post("/{project_id}/export", status_code=202)
+async def start_export_editor(project_id: str, request: ExportRequest = None):
+    """Start export job. Stub - implemented in T044."""
+    raise HTTPException(status_code=501, detail="Not implemented - T044")
+
+
+@editor_api.get("/{project_id}/export/{job_id}")
+async def get_export_status_editor(project_id: str, job_id: str):
+    """Get export job status. Stub - implemented in T044."""
+    raise HTTPException(status_code=501, detail="Not implemented - T044")
+
+
+app.include_router(editor_api)
+
+# Preview endpoint
+@app.get("/preview/frame")
+async def preview_frame(project_id: str, timecode: int):
+    """Extract preview frame. Stub - implemented in T039."""
+    raise HTTPException(status_code=501, detail="Not implemented - T039")
+
+
+# WebSocket for editor chat (stub for T013)
+@app.websocket("/ws/chat/{session_id}")
+async def ws_editor_chat(ws: WebSocket, session_id: str):
+    """WebSocket for AI chat. Stub - implemented in T013."""
+    await ws.accept()
+    await ws.send_json({"type": "error", "data": {"message": "Not implemented - T013"}})
+    await ws.close()
+
 
 app.include_router(api)
 
