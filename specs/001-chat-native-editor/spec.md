@@ -384,8 +384,12 @@ MP4 with H.264 video and AAC audio at 1280×720 that matches the timeline compos
   A `GET /projects/{project_id}/export/{job_id}` polling endpoint MUST return status
   (`pending`, `running`, `done`, `error`), percentage progress (0–100), an
   `estimated_time_remaining` integer field (seconds remaining as a positive integer,
-  or `null` when status is `pending` or `error` and an estimate is unavailable), and
-  — when `done` — a relative download URL served by the same FastAPI process. Export initiated
+  or `null` when status is `pending` or `error` and an estimate is unavailable),
+  — when `done` — a relative download URL served by the same FastAPI process, and
+  — when `error` — an `error_message` string field containing a human-readable
+  description of the failure (consistent with the `error_message` field stored in the
+  on-disk job record as defined in FR-022). The frontend MUST display this
+  `error_message` in the export panel when the job reaches `error` status. Export initiated
   via chat instruction (e.g., \\\"导出视频\\\") MUST invoke the same endpoint through the
   agent's tool interface. The UI MUST display percentage progress and estimated time
   remaining during export, and provide a download link upon completion. At most one
