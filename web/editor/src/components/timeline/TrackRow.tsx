@@ -14,6 +14,7 @@ import type {
   VoiceoverTrack, 
   BgmTrack 
 } from '../../types';
+import { ClipBlock } from './ClipBlock';
 
 /** Track type to clip array mapping */
 type TrackClip<T extends keyof TimelineTracks> = TimelineTracks[T][number];
@@ -135,16 +136,28 @@ export function TrackRow({
   }
 
   /**
-   * Render a clip block - placeholder until ClipBlock component is implemented
+   * Render a clip block using ClipBlock component for video, placeholder for others
    */
   function renderClipBlock(clip: TrackClip<keyof TimelineTracks>, index: number) {
+    // Use ClipBlock component for video track
+    if (trackType === 'video') {
+      return (
+        <ClipBlock
+          key={`${trackId}-clip-${index}`}
+          trackType={trackType}
+          clip={clip as ClipTrack}
+          pixelsPerSecond={pixelsPerSecond}
+          allClipsInTrack={clips as ClipTrack[]}
+        />
+      );
+    }
+    
+    // Placeholder rendering for non-video tracks (subtitle, voiceover, bgm)
     const style = getClipStyle(clip as any);
     
     // Get clip label based on track type
     let label = '';
-    if (trackType === 'video') {
-      label = (clip as ClipTrack).path?.split('/').pop() || `Clip ${index + 1}`;
-    } else if (trackType === 'subtitles') {
+    if (trackType === 'subtitles') {
       label = (clip as SubtitleTrack).text?.substring(0, 20) || `Subtitle ${index + 1}`;
     } else if (trackType === 'voiceover') {
       label = (clip as VoiceoverTrack).path?.split('/').pop() || `VO ${index + 1}`;
