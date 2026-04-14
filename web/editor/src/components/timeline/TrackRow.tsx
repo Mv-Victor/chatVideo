@@ -6,7 +6,6 @@
  */
 
 import { useCallback, useRef } from 'react';
-import { useEditorStore } from '../../store';
 import type { 
   TimelineTracks, 
   ClipTrack, 
@@ -15,6 +14,7 @@ import type {
   BgmTrack 
 } from '../../types';
 import { ClipBlock } from './ClipBlock';
+import { VolumeSlider } from './VolumeSlider';
 
 /** Track type to clip array mapping */
 type TrackClip<T extends keyof TimelineTracks> = TimelineTracks[T][number];
@@ -43,14 +43,6 @@ const VOLUME_TRACKS: Record<string, 'video_volume' | 'voiceover_volume' | 'bgm_v
   'A2': 'bgm_volume',
 };
 
-/** Default volumes per track */
-const DEFAULT_VOLUMES: Record<string, number> = {
-  'V1': 1.0,
-  'SUB': 1.0,
-  'A1': 2.0,
-  'A2': 0.25,
-};
-
 /**
  * TrackRow component - renders a single track row with header and clips.
  */
@@ -62,35 +54,10 @@ export function TrackRow({
   timelineWidth,
   onClipDrop,
 }: TrackRowProps) {
-  const timeline = useEditorStore((state) => state.timeline);
-  const pushUndo = useEditorStore((state) => state.pushUndo);
-  const setTimeline = useEditorStore((state) => state.setTimeline);
-
   const clipAreaRef = useRef<HTMLDivElement>(null);
 
   // Get volume field key for this track (if applicable)
-  const volumeKey = VOLUME_TRACKS[trackId];
-  
-  // Get current volume value from timeline
-  const volume = timeline && volumeKey ? timeline[volumeKey] : DEFAULT_VOLUMES[trackId] || 1.0;
-
-  /**
-   * Handle volume slider change
-   */
-  const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!timeline || !volumeKey) return;
-    
-    const newVolume = parseFloat(e.target.value);
-    
-    // Push current state to undo stack before mutation
-    pushUndo(timeline);
-    
-    // Update timeline with new volume
-    setTimeline({
-      ...timeline,
-      [volumeKey]: newVolume,
-    });
-  }, [timeline, volumeKey, pushUndo, setTimeline]);
+  const volumeField = VOLUME_TRACKS[trackId];
 
   /**
    * Handle dragover event - must preventDefault to allow drop
@@ -153,7 +120,7 @@ export function TrackRow({
     }
     
     // Placeholder rendering for non-video tracks (subtitle, voiceover, bgm)
-    const style = getClipStyle(clip as any);
+    const style = getClipStyle(clip as { timeline_window: { start: number; end: number } });
     
     // Get clip label based on track type
     let label = '';
@@ -183,24 +150,13 @@ export function TrackRow({
    * Render volume slider for tracks with volume control
    */
   function renderVolumeSlider() {
-    if (!volumeKey) return null;
+    if (!volumeField) return null;
 
     return (
-      <div className="flex flex-col items-center mt-1">
-        <input
-          type="range"
-          min="0"
-          max="2"
-          step="0.05"
-          value={volume}
-          onChange={handleVolumeChange}
-          className="w-16 h-1 bg-editor-border rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-editor-text-bright [&::-webkit-slider-thumb]:rounded-full"
-          title={`Volume: ${Math.round(volume * 100)}%`}
-        />
-        <span className="text-xs text-editor-muted">
-          {Math.round(volume * 100)}%
-        </span>
-      </div>
+      <VolumeSlider
+        trackId={trackId}
+        volumeField={volumeField}
+      />
     );
   }
 
