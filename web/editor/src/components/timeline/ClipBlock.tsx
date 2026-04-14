@@ -8,6 +8,7 @@
 import { useCallback, useState, useRef } from 'react';
 import { useEditorStore } from '../../store';
 import type { ClipTrack, Timeline, TimelineTracks } from '../../types';
+import { TrimHandle } from './TrimHandle';
 
 /** Snap threshold in pixels for clip boundary snapping */
 const SNAP_THRESHOLD_PX = 10;
@@ -305,7 +306,7 @@ export function ClipBlock({
     <div
       ref={clipRef}
       className={`
-        absolute top-1 bottom-1 ${bgColor} border border-editor-border rounded 
+        absolute top-1 bottom-1 ${bgColor} border border-editor-border rounded
         cursor-move flex items-center justify-between overflow-hidden
         ${isDragging ? 'opacity-50' : 'opacity-100'}
         transition-opacity duration-150
@@ -329,6 +330,7 @@ export function ClipBlock({
           pixelsPerSecond={pixelsPerSecond}
           onTrim={handleTrim}
           onTrimEnd={handleTrimEnd}
+          allClipsInTrack={allClipsInTrack}
         />
       )}
 
@@ -345,102 +347,10 @@ export function ClipBlock({
           pixelsPerSecond={pixelsPerSecond}
           onTrim={handleTrim}
           onTrimEnd={handleTrimEnd}
+          allClipsInTrack={allClipsInTrack}
         />
       )}
     </div>
-  );
-}
-
-/**
- * TrimHandle component props.
- * Note: Full implementation in T024, this is a stub for T023.
- */
-interface TrimHandleProps {
-  side: 'left' | 'right';
-  clip: ClipTrack;
-  pixelsPerSecond: number;
-  onTrim: (side: 'left' | 'right', newTimeMs: number) => void;
-  onTrimEnd: () => void;
-}
-
-/**
- * TrimHandle - stub component for T023, full implementation in T024.
- * Renders a draggable handle on left or right edge of clip for trimming.
- */
-function TrimHandle({ side, clip, pixelsPerSecond, onTrim, onTrimEnd }: TrimHandleProps) {
-  const handleRef = useRef<HTMLDivElement>(null);
-  const [isTrimming, setIsTrimming] = useState(false);
-  const [startX, setStartX] = useState(0);
-  const [originalTime, setOriginalTime] = useState(0);
-
-  /**
-   * Handle pointer down on trim handle - start trim operation.
-   */
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      // Capture pointer for reliable move/up events
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-
-      setIsTrimming(true);
-      setStartX(e.clientX);
-      setOriginalTime(
-        side === 'left'
-          ? clip.timeline_window.start
-          : clip.timeline_window.end
-      );
-    },
-    [clip.timeline_window, side]
-  );
-
-  /**
-   * Handle pointer move - update trim position.
-   */
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!isTrimming) return;
-
-      const deltaX = e.clientX - startX;
-      const deltaMs = (deltaX / pixelsPerSecond) * 1000;
-      const newTimeMs = Math.max(0, Math.round(originalTime + deltaMs));
-
-      onTrim(side, newTimeMs);
-    },
-    [isTrimming, startX, originalTime, pixelsPerSecond, onTrim, side]
-  );
-
-  /**
-   * Handle pointer up - end trim operation.
-   */
-  const handlePointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (!isTrimming) return;
-
-      // Release pointer capture
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-
-      setIsTrimming(false);
-      onTrimEnd();
-    },
-    [isTrimming, onTrimEnd]
-  );
-
-  return (
-    <div
-      ref={handleRef}
-      className={`
-        absolute top-0 bottom-0 w-2 cursor-ew-resize
-        bg-editor-border hover:bg-editor-text transition-colors
-        ${isTrimming ? 'bg-editor-text' : ''}
-        ${side === 'left' ? 'left-0 rounded-l' : 'right-0 rounded-r'}
-      `}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-    />
   );
 }
 
