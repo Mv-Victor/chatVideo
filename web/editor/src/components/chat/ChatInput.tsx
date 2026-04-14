@@ -8,6 +8,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useEditorStore } from '../../store';
 import type { AssetMention } from '../../types';
+import { MentionDropdown } from './MentionDropdown';
 
 /**
  * ChatInput - textarea component for composing and sending chat messages.
@@ -24,7 +25,6 @@ export function ChatInput() {
   
   // Get state from Zustand store
   const isProcessing = useEditorStore((state) => state.isProcessing);
-  const assets = useEditorStore((state) => state.assets);
   
   // Get sendChatMessage from WebSocket hook (will be injected via props or context)
   // For now, we'll get it from a custom hook integration point
@@ -91,12 +91,7 @@ export function ChatInput() {
       return;
     }
     
-    // Arrow keys and Tab for mention dropdown navigation (T018 will implement)
-    if (mentionDropdownOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab')) {
-      e.preventDefault();
-      // MentionDropdown will handle these events
-      return;
-    }
+    // Arrow keys and Tab are handled by MentionDropdown via global keydown listener
   };
 
   /**
@@ -157,55 +152,16 @@ export function ChatInput() {
     }, 0);
   };
 
-  /**
-   * Filter assets for mention dropdown
-   */
-  const filteredAssets = mentionDropdownOpen
-    ? assets.filter(asset => {
-        // Only show ready assets
-        if (asset.status !== 'ready') return false;
-        
-        // Filter by typed characters after @
-        if (mentionFilter) {
-          return asset.name.toLowerCase().includes(mentionFilter.toLowerCase());
-        }
-        
-        return true;
-      })
-    : [];
-
   return (
     <div className="relative border-t border-editor-border bg-editor-surface">
-      {/* 
-        MentionDropdown will be rendered here when T018 is implemented.
-        For now, we'll show a simple placeholder when @ is triggered.
-      */}
-      {mentionDropdownOpen && filteredAssets.length > 0 && (
-        <div className="absolute bottom-full left-0 right-0 bg-editor-surface border border-editor-border rounded-t-lg max-h-48 overflow-y-auto mb-1 shadow-lg">
-          <div className="p-2 text-xs text-editor-muted border-b border-editor-border">
-            Select an asset to mention
-          </div>
-          {filteredAssets.map((asset) => (
-            <button
-              key={asset.id}
-              onClick={() => insertMention(asset.id, asset.name)}
-              className="w-full text-left px-4 py-2 hover:bg-zinc-700 transition-colors flex items-center gap-2"
-            >
-              {asset.thumbnail_url && (
-                <img
-                  src={asset.thumbnail_url}
-                  alt={asset.name}
-                  className="w-8 h-8 object-cover rounded"
-                />
-              )}
-              <div className="flex-1">
-                <div className="text-sm text-editor-text-bright">{asset.name}</div>
-                <div className="text-xs text-editor-muted">{asset.type}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* MentionDropdown for @ mentions */}
+      <MentionDropdown
+        isOpen={mentionDropdownOpen}
+        filter={mentionFilter}
+        onSelect={insertMention}
+        onClose={() => setMentionDropdownOpen(false)}
+        currentMentions={mentions}
+      />
       
       {/* Input area */}
       <div className="flex items-end gap-2 p-4">
