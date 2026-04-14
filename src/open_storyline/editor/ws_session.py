@@ -364,6 +364,9 @@ class WSSession:
         try:
             if self.websocket.client_state == WebSocketState.CONNECTED:
                 await self.websocket.send_json(event)
+        except (TypeError, ValueError) as e:
+            # Serialization error - event contains non-JSON-serializable data
+            logger.error(f"WS session {self.project_id}: Serialization error - Failed to emit event: {e}")
         except Exception as e:
             logger.error(f"WS session {self.project_id}: Failed to emit event: {e}")
         
@@ -384,6 +387,9 @@ class WSSession:
             if self.websocket.client_state == WebSocketState.CONNECTED:
                 # Schedule the send on the event loop
                 asyncio.create_task(self.websocket.send_json(event))
+        except (TypeError, ValueError) as e:
+            # Serialization error - event contains non-JSON-serializable data
+            logger.error(f"WS session {self.project_id}: Serialization error - Failed to emit event (sync): {e}")
         except Exception as e:
             logger.error(f"WS session {self.project_id}: Failed to emit event (sync): {e}")
         

@@ -2301,11 +2301,14 @@ async def ws_editor_chat(ws: WebSocket, session_id: str):
                 # Receive raw text/bytes
                 raw = await ws.receive_text()
                 
+                # Log message received (per T020)
+                logger.info(f"WS editor chat: Message received for session {session_id}")
+                
                 # Parse JSON message
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError as e:
-                    logger.error(f"WS editor chat: Invalid JSON from client: {e}")
+                    logger.error(f"WS editor chat: Serialization error - Invalid JSON from client: {e}")
                     await ws.send_json({
                         "type": "error",
                         "session_id": session_id,
