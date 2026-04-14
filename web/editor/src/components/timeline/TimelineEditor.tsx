@@ -10,6 +10,7 @@ import { useEditorStore } from '../../store';
 import type { TimelineTracks } from '../../types';
 import { getTimelineDuration, formatTime } from '../../types';
 import { TrackRow } from './TrackRow';
+import { Playhead } from './Playhead';
 
 /** Track row definitions - fixed order */
 const TRACKS = [
@@ -191,19 +192,23 @@ export function TimelineEditor() {
   }
 
   /**
-   * Render playhead indicator
+   * Handle playhead position change from Playhead component (drag)
+   */
+  const handlePlayheadChange = useCallback((newPlayheadMs: number) => {
+    setPlayheadMs(newPlayheadMs);
+  }, []);
+
+  /**
+   * Render playhead indicator using Playhead component
    */
   function renderPlayhead() {
-    const playheadPx = (playheadMs / 1000) * pixelsPerSecond;
-
     return (
-      <div
-        className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-10"
-        style={{ left: `${playheadPx}px` }}
-      >
-        {/* Playhead handle */}
-        <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-500 rotate-45" />
-      </div>
+      <Playhead
+        playheadMs={playheadMs}
+        pixelsPerSecond={pixelsPerSecond}
+        durationMs={durationMs}
+        onPlayheadChange={handlePlayheadChange}
+      />
     );
   }
 
