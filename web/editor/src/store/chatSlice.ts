@@ -18,11 +18,16 @@ export interface ChatSlice {
   setMessages: (messages: ChatMessage[]) => void;
   /** Clear all messages */
   clearMessages: () => void;
+  /** Internal: WebSocket send function (injected by ChatPanel) */
+  _sendChatMessage: ((content: string, mentions?: Array<{ asset_id: string; asset_name: string }>) => void) | null;
+  /** Set the WebSocket send function */
+  setSendChatMessage: (fn: ((content: string, mentions?: Array<{ asset_id: string; asset_name: string }>) => void) | null) => void;
 }
 
 export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set) => ({
   messages: [],
   isProcessing: false,
+  _sendChatMessage: null,
 
   addMessage: (message: ChatMessage) => {
     set((state) => ({
@@ -40,5 +45,9 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set)
 
   clearMessages: () => {
     set({ messages: [], isProcessing: false });
+  },
+
+  setSendChatMessage: (fn: ((content: string, mentions?: Array<{ asset_id: string; asset_name: string }>) => void) | null) => {
+    set({ _sendChatMessage: fn });
   },
 });
