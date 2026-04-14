@@ -9,6 +9,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { useEditorStore } from '../../store';
 import type { TimelineTracks } from '../../types';
 import { getTimelineDuration, formatTime } from '../../types';
+import { TrackRow } from './TrackRow';
 
 /** Track row definitions - fixed order */
 const TRACKS = [
@@ -114,6 +115,20 @@ export function TimelineEditor() {
   }, []);
 
   /**
+   * Handle clip drop events from TrackRow components
+   * Placeholder for drag-and-drop implementation (T036)
+   */
+  const handleClipDrop = useCallback((
+    _e: React.DragEvent,
+    trackType: keyof TimelineTracks,
+    dropMs: number
+  ) => {
+    // TODO: Implement in T036 (drag-from-library-to-timeline)
+    // This will handle creating new clips when assets are dropped from media library
+    console.log('Clip drop on track:', trackType, 'at', dropMs, 'ms');
+  }, []);
+
+  /**
    * Render timeline ruler with time ticks
    */
   function renderRuler() {
@@ -157,49 +172,21 @@ export function TimelineEditor() {
   }
 
   /**
-   * Render a single track row
+   * Render a single track row using TrackRow component
    */
   function renderTrackRow(trackId: string, trackType: keyof TimelineTracks) {
-    // Get clips for this track type
     const clips = timeline?.tracks[trackType] || [];
 
     return (
-      <div
+      <TrackRow
         key={trackId}
-        className="flex h-16 border-b border-editor-border"
-      >
-        {/* Track header */}
-        <div className="w-20 flex-shrink-0 flex items-center justify-center bg-editor-surface border-r border-editor-border">
-          <span className="text-sm font-medium text-editor-text-bright">
-            {trackId}
-          </span>
-        </div>
-
-        {/* Track content area */}
-        <div
-          className="relative flex-1 bg-editor-bg overflow-hidden"
-          style={{
-            minWidth: `${timelineWidthPx}px`,
-          }}
-        >
-          {/* Placeholder for TrackRow component - will be implemented in T022 */}
-          {/* For now, just show clip count */}
-          {clips.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center text-editor-muted text-sm">
-              Empty
-            </div>
-          )}
-
-          {/* Simple clip indicator - actual ClipBlock components will be added in T023 */}
-          <div className="absolute inset-y-2 left-2 right-2 flex items-center gap-1">
-            {clips.length > 0 && (
-              <span className="text-xs text-editor-muted">
-                {clips.length} clip{clips.length !== 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
+        trackId={trackId}
+        trackType={trackType}
+        clips={clips}
+        pixelsPerSecond={pixelsPerSecond}
+        timelineWidth={timelineWidthPx}
+        onClipDrop={handleClipDrop}
+      />
     );
   }
 
